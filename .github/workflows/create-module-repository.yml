@@ -540,12 +540,12 @@ jobs:
             echo "Repository name not available (preflight failed before computing names) — nothing to clean up."
             exit 0
           fi
-          if gh api /repos/${{ inputs.companyName }}/${{ env.REPO_NAME }} --silent 2>/dev/null; then
-            echo "Deleting repository ${{ inputs.companyName }}/${{ env.REPO_NAME }}..."
-            gh api --method DELETE /repos/${{ inputs.companyName }}/${{ env.REPO_NAME }}
-            echo "Repository deleted."
-          else
+          if DELETE_OUTPUT=$(gh api --method DELETE /repos/${{ inputs.companyName }}/${{ env.REPO_NAME }} 2>&1); then
+            echo "Repository ${{ inputs.companyName }}/${{ env.REPO_NAME }} deleted."
+          elif echo "$DELETE_OUTPUT" | grep -qi "not found\|404"; then
             echo "Repository does not exist — nothing to clean up."
+          else
+            echo "::warning::Delete attempt failed: $DELETE_OUTPUT"
           fi
 
     #   - name: Delete SonarCloud project
