@@ -209,6 +209,7 @@ jobs:
   populate-repository:
     runs-on: ubuntu-latest
     needs: create-repository
+    environment: delete-org-repo
     env:
       REPO_NAME: ${{ needs.create-repository.outputs.repoName }}
       MODULE_ID: ${{ needs.create-repository.outputs.moduleId }}
@@ -361,6 +362,7 @@ jobs:
   configure-branch-protection:
     runs-on: ubuntu-latest
     needs: [create-repository, populate-repository]
+    environment: delete-org-repo
     env:
       REPO_NAME: ${{ needs.create-repository.outputs.repoName }}
       GH_TOKEN: ${{ secrets.MODULE_REPO_MGMT_TOKEN }}
