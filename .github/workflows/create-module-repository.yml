@@ -51,9 +51,6 @@ on:
           - private
         default: 'public'
 
-env:
-  GH_TOKEN: ${{ secrets.REPO_TOKEN }}
-
 # Prevent concurrent runs for the same module name to avoid race conditions
 # on existence checks and resource creation.
 concurrency:
@@ -62,13 +59,17 @@ concurrency:
 
 jobs:
 
-  preflight:
+  create-module-repository:
     runs-on: ubuntu-latest
-    outputs:
-      repoName: ${{ steps.names.outputs.repoName }}
-      moduleId: ${{ steps.names.outputs.moduleId }}
-      sonarProjectKey: ${{ steps.names.outputs.sonarProjectKey }}
+    # Requires manual approval from a designated reviewer before any resources are created.
+    # Configure required reviewers at: Settings → Environments → create-org-repo
+    environment: create-org-repo
+    env:
+      GH_TOKEN: ${{ secrets.MODULE_REPO_MGMT_TOKEN }}
+
     steps:
+
+      # ── Preflight ────────────────────────────────────────────────────────────
 
       - name: Validate inputs
         env:
@@ -79,39 +80,6 @@ jobs:
             echo "::error::moduleName '$MODULE_NAME' is invalid. Must start with an uppercase letter and contain only letters and digits (e.g. 'News', 'NewsArticle')."
             exit 1
           fi
-
-      - name: Validate REPO_TOKEN permissions
-        run: |
-          LOGIN=$(gh api /user --jq '.login' 2>/dev/null) || {
-            echo "::error::REPO_TOKEN is invalid or missing."
-            exit 1
-          }
-          echo "Authenticated as: $LOGIN"
-          gh api /orgs/${{ inputs.companyName }} --jq '.login' 2>/dev/null || {
-            echo "::error::REPO_TOKEN cannot access ${{ inputs.companyName }} organization. Ensure the token has 'repo' and 'read:org' scopes."
-            exit 1
-          }
-          echo "Organization access confirmed."
-
-    #   - name: Validate SONAR_TOKEN and SONAR_ORG_KEY
-    #     if: ${{ inputs.visibility == 'public' }}
-    #     run: |
-    #       if [ -z "${{ secrets.SONAR_TOKEN }}" ]; then
-    #         echo "::error::SONAR_TOKEN secret is not set."
-    #         exit 1
-    #       fi
-    #       if [ -z "${{ secrets.SONAR_ORG_KEY }}" ]; then
-    #         echo "::error::SONAR_ORG_KEY secret is not set."
-    #         exit 1
-    #       fi
-    #       RESPONSE=$(curl -s \
-    #         -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
-    #         "https://sonarcloud.io/api/authentication/validate")
-    #       if ! echo "$RESPONSE" | grep -q '"valid":true'; then
-    #         echo "::error::SONAR_TOKEN is invalid."
-    #         exit 1
-    #       fi
-    #       echo "SONAR_TOKEN is valid."
 
       - name: Compute names
         id: names
@@ -127,6 +95,10 @@ jobs:
           echo "repoName=${REPO_NAME}" >> $GITHUB_OUTPUT
           echo "moduleId=${MODULE_ID}" >> $GITHUB_OUTPUT
           echo "sonarProjectKey=${SONAR_KEY}" >> $GITHUB_OUTPUT
+          # Also export as env vars for subsequent steps
+          echo "REPO_NAME=${REPO_NAME}" >> $GITHUB_ENV
+          echo "MODULE_ID=${MODULE_ID}" >> $GITHUB_ENV
+          echo "SONAR_PROJECT_KEY=${SONAR_KEY}" >> $GITHUB_ENV
           echo "Repository:       ${REPO_NAME}"
           echo "Module ID:        ${MODULE_ID}"
           echo "SonarCloud key:   ${SONAR_KEY}"
@@ -150,25 +122,11 @@ jobs:
     #         exit 1
     #       fi
 
-  create-repository:
-    runs-on: ubuntu-latest
-    needs: preflight
-    # Requires manual approval from a designated reviewer before any resources are created.
-    # Configure required reviewers at: Settings → Environments → create-org-repo
-    environment: create-org-repo
-    # Pass preflight outputs through so downstream jobs have a single source via create-repository
-    outputs:
-      repoName: ${{ needs.preflight.outputs.repoName }}
-      moduleId: ${{ needs.preflight.outputs.moduleId }}
-      sonarProjectKey: ${{ needs.preflight.outputs.sonarProjectKey }}
-    env:
-      REPO_NAME: ${{ needs.preflight.outputs.repoName }}
-      GH_TOKEN: ${{ secrets.MODULE_REPO_MGMT_TOKEN }}
-    steps:
+      # ── Create repository ─────────────────────────────────────────────────────
 
       - name: Create repository
         run: |
-          gh repo create ${{ inputs.companyName }}/${{ env.REPO_NAME }} \
+          gh repo create ${{ inputs.companyName }}/${{ steps.names.outputs.repoName }} \
             --${{ inputs.visibility }} \
             --description "${{ inputs.companyName }} ${{ inputs.moduleName }} module"
 
@@ -176,7 +134,7 @@ jobs:
         run: |
           gh api \
             --method PATCH \
-            /repos/${{ inputs.companyName }}/${{ env.REPO_NAME }} \
+            /repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }} \
             --field allow_merge_commit=false \
             --field allow_squash_merge=true \
             --field squash_merge_commit_title=PR_TITLE \
@@ -189,32 +147,24 @@ jobs:
         run: |
           gh api \
             --method PUT \
-            /orgs/${{ inputs.companyName }}/teams/platform/repos/${{ inputs.companyName }}/${{ env.REPO_NAME }} \
+            /orgs/${{ inputs.companyName }}/teams/platform/repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }} \
             --field permission=push
 
       - name: Add team - virto-commerce (maintain)
         run: |
           gh api \
             --method PUT \
-            /orgs/${{ inputs.companyName }}/teams/virto-commerce/repos/${{ inputs.companyName }}/${{ env.REPO_NAME }} \
+            /orgs/${{ inputs.companyName }}/teams/virto-commerce/repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }} \
             --field permission=maintain
 
       - name: Add team - virto-operations (admin)
         run: |
           gh api \
             --method PUT \
-            /orgs/${{ inputs.companyName }}/teams/virto-operations/repos/${{ inputs.companyName }}/${{ env.REPO_NAME }} \
+            /orgs/${{ inputs.companyName }}/teams/virto-operations/repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }} \
             --field permission=admin
 
-  populate-repository:
-    runs-on: ubuntu-latest
-    needs: create-repository
-    environment: delete-org-repo
-    env:
-      REPO_NAME: ${{ needs.create-repository.outputs.repoName }}
-      MODULE_ID: ${{ needs.create-repository.outputs.moduleId }}
-      GH_TOKEN: ${{ secrets.MODULE_REPO_MGMT_TOKEN }}
-    steps:
+      # ── Populate repository ───────────────────────────────────────────────────
 
       - name: Checkout .github (workflow templates)
         uses: actions/checkout@v4
@@ -242,7 +192,7 @@ jobs:
 
       - name: Clone new repository
         run: |
-          git clone https://x-access-token:${{ env.GH_TOKEN }}@github.com/${{ inputs.companyName }}/${{ env.REPO_NAME }}.git repo
+          git clone https://x-access-token:${{ env.GH_TOKEN }}@github.com/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }}.git repo
           # Ensure the default branch is 'main' regardless of org-level settings
           git -C repo symbolic-ref HEAD refs/heads/main
 
@@ -262,7 +212,7 @@ jobs:
           mkdir -p repo/.deployment/module
           cat > repo/.deployment/module/cloudDeploy.json << EOF
           {
-              "artifactKey": "${{ env.MODULE_ID }}",
+              "artifactKey": "${{ steps.names.outputs.moduleId }}",
               "deployRepo": "vc-deploy-dev",
               "cmPath": "backend/packages.json",
               "dev": {
@@ -351,7 +301,7 @@ jobs:
           git push -u origin main
 
       - name: Set default branch to main
-        run: gh repo edit ${{ inputs.companyName }}/${{ env.REPO_NAME }} --default-branch main
+        run: gh repo edit ${{ inputs.companyName }}/${{ steps.names.outputs.repoName }} --default-branch main
 
       - name: Create and push dev branch
         working-directory: repo
@@ -359,20 +309,13 @@ jobs:
           git checkout -b dev
           git push -u origin dev
 
-  configure-branch-protection:
-    runs-on: ubuntu-latest
-    needs: [create-repository, populate-repository]
-    environment: delete-org-repo
-    env:
-      REPO_NAME: ${{ needs.create-repository.outputs.repoName }}
-      GH_TOKEN: ${{ secrets.MODULE_REPO_MGMT_TOKEN }}
-    steps:
+      # ── Configure branch protection ───────────────────────────────────────────
 
       - name: Protect main branch
         run: |
           gh api \
             --method PUT \
-            /repos/${{ inputs.companyName }}/${{ env.REPO_NAME }}/branches/main/protection \
+            /repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }}/branches/main/protection \
             --input - << 'EOF'
           {
             "required_status_checks": {
@@ -402,7 +345,7 @@ jobs:
         run: |
           gh api \
             --method PUT \
-            /repos/${{ inputs.companyName }}/${{ env.REPO_NAME }}/branches/dev/protection \
+            /repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }}/branches/dev/protection \
             --input - << 'EOF'
           {
             "required_status_checks": {
@@ -428,75 +371,63 @@ jobs:
           }
           EOF
 
-#   configure-sonarcloud:
-#     runs-on: ubuntu-latest
-#     if: ${{ inputs.visibility == 'public' }}
-#     needs: create-repository
-#     env:
-#       SONAR_PROJECT_KEY: ${{ needs.create-repository.outputs.sonarProjectKey }}
-#       SONAR_PROJECT_NAME: ${{ needs.create-repository.outputs.repoName }}
-#     steps:
+    #   - name: Create SonarCloud project
+    #     if: ${{ inputs.visibility == 'public' }}
+    #     run: |
+    #       curl -sf -X POST \
+    #         -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
+    #         "https://sonarcloud.io/api/projects/create" \
+    #         --data-urlencode "organization=${{ secrets.SONAR_ORG_KEY }}" \
+    #         --data-urlencode "project=$SONAR_PROJECT_KEY" \
+    #         --data-urlencode "name=$REPO_NAME" \
+    #         --data-urlencode "visibility=public"
 
-#       - name: Create SonarCloud project
-#         run: |
-#           curl -sf -X POST \
-#             -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
-#             "https://sonarcloud.io/api/projects/create" \
-#             --data-urlencode "organization=${{ secrets.SONAR_ORG_KEY }}" \
-#             --data-urlencode "project=${{ env.SONAR_PROJECT_KEY }}" \
-#             --data-urlencode "name=${{ env.SONAR_PROJECT_NAME }}" \
-#             --data-urlencode "visibility=public"
+    #   - name: Turn off Automatic Analysis
+    #     if: ${{ inputs.visibility == 'public' }}
+    #     # Removes the GitHub ALM binding which disables Automatic Analysis,
+    #     # ensuring CI-based analysis (dotnet-sonarscanner in module-ci.yml) is used instead.
+    #     run: |
+    #       curl -sf -X POST \
+    #         -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
+    #         "https://sonarcloud.io/api/alm_settings/delete_project_binding" \
+    #         --data-urlencode "project=$SONAR_PROJECT_KEY" \
+    #         || echo "No ALM binding found — Automatic Analysis was not enabled"
 
-#       - name: Turn off Automatic Analysis
-#         # Removes the GitHub ALM binding which disables Automatic Analysis,
-#         # ensuring CI-based analysis (dotnet-sonarscanner in module-ci.yml) is used instead.
-#         run: |
-#           curl -sf -X POST \
-#             -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
-#             "https://sonarcloud.io/api/alm_settings/delete_project_binding" \
-#             --data-urlencode "project=${{ env.SONAR_PROJECT_KEY }}" \
-#             || echo "No ALM binding found — Automatic Analysis was not enabled"
+    #   - name: Configure analysis scope
+    #     if: ${{ inputs.visibility == 'public' }}
+    #     run: |
+    #       set_setting() {
+    #         curl -sf -X POST \
+    #           -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
+    #           "https://sonarcloud.io/api/settings/set" \
+    #           --data-urlencode "component=$SONAR_PROJECT_KEY" \
+    #           --data-urlencode "key=$1" \
+    #           --data-urlencode "value=$2"
+    #       }
+    #       set_setting "sonar.sources"                      "src"
+    #       set_setting "sonar.tests"                        "tests"
+    #       set_setting "sonar.exclusions"                   "**/Migrations/**,**/Scripts/**,**/node_modules/**,**/*.Designer.cs"
+    #       set_setting "sonar.coverage.exclusions"          "**/Migrations/**,**/Tests/**,**/*.Designer.cs"
+    #       set_setting "sonar.cs.opencover.reportsPaths"    "artifacts/tests/**/*.xml"
 
-#       - name: Configure analysis scope
-#         run: |
-#           set_setting() {
-#             curl -sf -X POST \
-#               -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
-#               "https://sonarcloud.io/api/settings/set" \
-#               --data-urlencode "component=${{ env.SONAR_PROJECT_KEY }}" \
-#               --data-urlencode "key=$1" \
-#               --data-urlencode "value=$2"
-#           }
-
-#           set_setting "sonar.sources"              "src"
-#           set_setting "sonar.tests"               "tests"
-#           set_setting "sonar.exclusions"          "**/Migrations/**,**/Scripts/**,**/node_modules/**,**/*.Designer.cs"
-#           set_setting "sonar.coverage.exclusions" "**/Migrations/**,**/Tests/**,**/*.Designer.cs"
-#           set_setting "sonar.cs.opencover.reportsPaths" "artifacts/tests/**/*.xml"
-
-  notify:
-    runs-on: ubuntu-latest
-    # Runs only when all main jobs succeed. Issue creation failure does not
-    # fail the overall workflow — repo setup is already complete at this point.
-    needs: [create-repository, populate-repository, configure-branch-protection] #, configure-sonarcloud]
-    continue-on-error: true
-    env:
-      REPO_NAME: ${{ needs.create-repository.outputs.repoName }}
-      MODULE_ID: ${{ needs.create-repository.outputs.moduleId }}
-    steps:
+      # ── Notify ───────────────────────────────────────────────────────────────
 
       - name: Create tracking issue
+        # Issue creation failure does not fail the workflow — repo setup is already complete.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN }}
         run: |
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          REPO_URL="https://github.com/${{ inputs.companyName }}/${{ env.REPO_NAME }}"
+          REPO_URL="https://github.com/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }}"
 
           cat > /tmp/issue-body.md << EOF
           ## Module Repository Created
 
           | Field | Value |
           |-------|-------|
-          | **Repository** | [${{ inputs.companyName }}/${{ env.REPO_NAME }}]($REPO_URL) |
-          | **Module ID** | ${{ env.MODULE_ID }} |
+          | **Repository** | [${{ inputs.companyName }}/${{ steps.names.outputs.repoName }}]($REPO_URL) |
+          | **Module ID** | ${{ steps.names.outputs.moduleId }} |
           | **Template** | ${{ inputs.template }} |
           | **Visibility** | ${{ inputs.visibility }} |
           | **Module version** | ${{ inputs.moduleVersion }} |
@@ -508,8 +439,8 @@ jobs:
           EOF
 
           if [ "${{ inputs.visibility }}" = "public" ]; then
-            SONAR_URL="https://sonarcloud.io/project/overview?id=${{ needs.create-repository.outputs.sonarProjectKey }}"
-            echo "| **SonarCloud** | [${{ needs.create-repository.outputs.sonarProjectKey }}]($SONAR_URL) |" >> /tmp/issue-body.md
+            SONAR_URL="https://sonarcloud.io/project/overview?id=${{ steps.names.outputs.sonarProjectKey }}"
+            echo "| **SonarCloud** | [${{ steps.names.outputs.sonarProjectKey }}]($SONAR_URL) |" >> /tmp/issue-body.md
           fi
 
           cat >> /tmp/issue-body.md << 'EOF'
@@ -523,51 +454,44 @@ jobs:
 
           gh issue create \
             --repo "${{ github.repository }}" \
-            --title "New module: ${{ inputs.companyName }}/${{ env.REPO_NAME }}" \
+            --title "New module: ${{ inputs.companyName }}/${{ steps.names.outputs.repoName }}" \
             --body-file /tmp/issue-body.md
 
-  cleanup:
-    runs-on: ubuntu-latest
-    if: ${{ failure() }}
-    needs: [preflight, create-repository, populate-repository, configure-branch-protection] #, configure-sonarcloud]
-    environment: delete-org-repo
-    env:
-      REPO_NAME: ${{ needs.preflight.outputs.repoName }}
-      SONAR_PROJECT_KEY: ${{ needs.preflight.outputs.sonarProjectKey }}
-      GH_TOKEN: ${{ secrets.MODULE_REPO_MGMT_TOKEN }}
-    steps:
+      # ── Cleanup on failure ────────────────────────────────────────────────────
 
-      - name: Delete GitHub repository
+      - name: Delete GitHub repository (rollback)
+        if: failure()
         run: |
-          if [ -z "${{ env.REPO_NAME }}" ]; then
-            echo "Repository name not available (preflight failed before computing names) — nothing to clean up."
+          if [ -z "${{ steps.names.outputs.repoName }}" ]; then
+            echo "Repository name not available (failed before computing names) — nothing to clean up."
             exit 0
           fi
-          if DELETE_OUTPUT=$(gh api --method DELETE /repos/${{ inputs.companyName }}/${{ env.REPO_NAME }} 2>&1); then
-            echo "Repository ${{ inputs.companyName }}/${{ env.REPO_NAME }} deleted."
+          if DELETE_OUTPUT=$(gh api --method DELETE /repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }} 2>&1); then
+            echo "Repository ${{ inputs.companyName }}/${{ steps.names.outputs.repoName }} deleted."
           elif echo "$DELETE_OUTPUT" | grep -qi "not found\|404"; then
             echo "Repository does not exist — nothing to clean up."
           else
             echo "::warning::Delete attempt failed: $DELETE_OUTPUT"
           fi
 
-    #   - name: Delete SonarCloud project
-    #     if: ${{ inputs.visibility == 'public' }}
+    #   - name: Delete SonarCloud project (rollback)
+    #     if: failure() && inputs.visibility == 'public'
     #     run: |
-    #       if [ -z "${{ env.SONAR_PROJECT_KEY }}" ]; then
-    #         echo "SonarCloud project key not available (preflight failed before computing names) — nothing to clean up."
+    #       if [ -z "$SONAR_PROJECT_KEY" ]; then
+    #         echo "SonarCloud project key not available (failed before computing names) — nothing to clean up."
     #         exit 0
     #       fi
     #       RESPONSE=$(curl -s \
     #         -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
-    #         "https://sonarcloud.io/api/projects/search?projects=${{ env.SONAR_PROJECT_KEY }}&organization=${{ secrets.SONAR_ORG_KEY }}" 2>/dev/null || echo '{}')
+    #         "https://sonarcloud.io/api/projects/search?projects=$SONAR_PROJECT_KEY&organization=${{ secrets.SONAR_ORG_KEY }}" \
+    #         2>/dev/null || echo '{}')
     #       TOTAL=$(echo "$RESPONSE" | grep -o '"total":[0-9]*' | cut -d: -f2)
     #       if [ "${TOTAL:-0}" -gt "0" ]; then
-    #         echo "Deleting SonarCloud project ${{ env.SONAR_PROJECT_KEY }}..."
+    #         echo "Deleting SonarCloud project $SONAR_PROJECT_KEY..."
     #         curl -sf -X POST \
     #           -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
     #           "https://sonarcloud.io/api/projects/delete" \
-    #           --data-urlencode "project=${{ env.SONAR_PROJECT_KEY }}"
+    #           --data-urlencode "project=$SONAR_PROJECT_KEY"
     #         echo "SonarCloud project deleted."
     #       else
     #         echo "SonarCloud project does not exist — nothing to clean up."
