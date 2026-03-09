@@ -154,8 +154,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: preflight
     # Requires manual approval from a designated reviewer before any resources are created.
-    # Configure required reviewers at: Settings → Environments → module-repository-management
-    environment: module-repository-management
+    # Configure required reviewers at: Settings → Environments → create-org-repo
+    environment: create-org-repo
     # Pass preflight outputs through so downstream jobs have a single source via create-repository
     outputs:
       repoName: ${{ needs.preflight.outputs.repoName }}
@@ -528,6 +528,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ failure() }}
     needs: [preflight, create-repository, populate-repository, configure-branch-protection] #, configure-sonarcloud]
+    environment: delete-org-repo
     env:
       REPO_NAME: ${{ needs.preflight.outputs.repoName }}
       SONAR_PROJECT_KEY: ${{ needs.preflight.outputs.sonarProjectKey }}
