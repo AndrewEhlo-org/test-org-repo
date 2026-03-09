@@ -125,10 +125,12 @@ jobs:
       # ── Create repository ─────────────────────────────────────────────────────
 
       - name: Create repository
+        id: create-repo
         run: |
           gh repo create ${{ inputs.companyName }}/${{ steps.names.outputs.repoName }} \
             --${{ inputs.visibility }} \
             --description "${{ inputs.companyName }} ${{ inputs.moduleName }} module"
+          echo "created=true" >> $GITHUB_OUTPUT
 
       - name: Configure repository settings
         run: |
@@ -372,6 +374,7 @@ jobs:
           EOF
 
     #   - name: Create SonarCloud project
+    #     id: create-sonarcloud
     #     if: ${{ inputs.visibility == 'public' }}
     #     run: |
     #       curl -sf -X POST \
@@ -381,6 +384,7 @@ jobs:
     #         --data-urlencode "project=$SONAR_PROJECT_KEY" \
     #         --data-urlencode "name=$REPO_NAME" \
     #         --data-urlencode "visibility=public"
+    #       echo "created=true" >> $GITHUB_OUTPUT
 
     #   - name: Turn off Automatic Analysis
     #     if: ${{ inputs.visibility == 'public' }}
@@ -460,12 +464,8 @@ jobs:
       # ── Cleanup on failure ────────────────────────────────────────────────────
 
       - name: Delete GitHub repository (rollback)
-        if: failure()
+        if: failure() && steps.create-repo.outputs.created == 'true'
         run: |
-          if [ -z "${{ steps.names.outputs.repoName }}" ]; then
-            echo "Repository name not available (failed before computing names) — nothing to clean up."
-            exit 0
-          fi
           if DELETE_OUTPUT=$(gh api --method DELETE /repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }} 2>&1); then
             echo "Repository ${{ inputs.companyName }}/${{ steps.names.outputs.repoName }} deleted."
           elif echo "$DELETE_OUTPUT" | grep -qi "not found\|404"; then
@@ -475,7 +475,7 @@ jobs:
           fi
 
     #   - name: Delete SonarCloud project (rollback)
-    #     if: failure() && inputs.visibility == 'public'
+    #     if: failure() && steps.create-sonarcloud.outputs.created == 'true'
     #     run: |
     #       if [ -z "$SONAR_PROJECT_KEY" ]; then
     #         echo "SonarCloud project key not available (failed before computing names) — nothing to clean up."
