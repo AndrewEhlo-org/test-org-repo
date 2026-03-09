@@ -69,8 +69,6 @@ jobs:
 
     steps:
 
-      # ── Preflight ────────────────────────────────────────────────────────────
-
       - name: Validate inputs
         env:
           MODULE_NAME: ${{ inputs.moduleName }}
@@ -122,8 +120,6 @@ jobs:
     #         exit 1
     #       fi
 
-      # ── Create repository ─────────────────────────────────────────────────────
-
       - name: Create repository
         id: create-repo
         run: |
@@ -145,28 +141,16 @@ jobs:
             --field allow_update_branch=true \
             --field delete_branch_on_merge=true
 
-      - name: Add team - platform (write)
+      - name: Configure teams
         run: |
-          gh api \
-            --method PUT \
-            /orgs/${{ inputs.companyName }}/teams/platform/repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }} \
-            --field permission=push
-
-      - name: Add team - virto-commerce (maintain)
-        run: |
-          gh api \
-            --method PUT \
-            /orgs/${{ inputs.companyName }}/teams/virto-commerce/repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }} \
-            --field permission=maintain
-
-      - name: Add team - virto-operations (admin)
-        run: |
-          gh api \
-            --method PUT \
-            /orgs/${{ inputs.companyName }}/teams/virto-operations/repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }} \
-            --field permission=admin
-
-      # ── Populate repository ───────────────────────────────────────────────────
+          declare -A TEAMS=([platform]=push [virto-commerce]=maintain [virto-operations]=admin)
+          for TEAM in "${!TEAMS[@]}"; do
+            echo "Adding team $TEAM (${TEAMS[$TEAM]})"
+            gh api \
+              --method PUT \
+              /orgs/${{ inputs.companyName }}/teams/$TEAM/repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }} \
+              --field permission=${TEAMS[$TEAM]}
+          done
 
       - name: Checkout .github (workflow templates)
         uses: actions/checkout@v4
@@ -302,23 +286,16 @@ jobs:
           git commit -m "ci: Initialize module repository"
           git push -u origin main
 
-      - name: Set default branch to main
-        run: gh repo edit ${{ inputs.companyName }}/${{ steps.names.outputs.repoName }} --default-branch main
-
-      - name: Create and push dev branch
+      - name: Create and push default dev branch
         working-directory: repo
         run: |
           git checkout -b dev
           git push -u origin dev
+          gh repo edit ${{ inputs.companyName }}/${{ steps.names.outputs.repoName }} --default-branch dev
 
-      # ── Configure branch protection ───────────────────────────────────────────
-
-      - name: Protect main branch
+      - name: Protect branches
         run: |
-          gh api \
-            --method PUT \
-            /repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }}/branches/main/protection \
-            --input - << 'EOF'
+          POLICY=$(cat << 'EOF'
           {
             "required_status_checks": {
               "strict": false,
@@ -342,36 +319,14 @@ jobs:
             "required_conversation_resolution": false
           }
           EOF
-
-      - name: Protect dev branch
-        run: |
-          gh api \
-            --method PUT \
-            /repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }}/branches/dev/protection \
-            --input - << 'EOF'
-          {
-            "required_status_checks": {
-              "strict": false,
-              "contexts": [
-                "license/cla",
-                "ci",
-                "SonarCloud Code Analysis",
-                "module-katalon-tests / e2e-tests"
-              ]
-            },
-            "enforce_admins": false,
-            "required_pull_request_reviews": {
-              "dismiss_stale_reviews": false,
-              "require_code_owner_reviews": false,
-              "require_last_push_approval": false,
-              "required_approving_review_count": 1
-            },
-            "restrictions": null,
-            "allow_force_pushes": false,
-            "allow_deletions": false,
-            "required_conversation_resolution": false
-          }
-          EOF
+          )
+          for BRANCH in main dev; do
+            echo "Protecting branch: $BRANCH"
+            echo "$POLICY" | gh api \
+              --method PUT \
+              /repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }}/branches/$BRANCH/protection \
+              --input -
+          done
 
     #   - name: Create SonarCloud project
     #     id: create-sonarcloud
@@ -460,8 +415,6 @@ jobs:
             --repo "${{ github.repository }}" \
             --title "New module: ${{ inputs.companyName }}/${{ steps.names.outputs.repoName }}" \
             --body-file /tmp/issue-body.md
-
-      # ── Cleanup on failure ────────────────────────────────────────────────────
 
       - name: Delete GitHub repository (rollback)
         if: failure() && steps.create-repo.outputs.created == 'true'
