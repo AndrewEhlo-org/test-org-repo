@@ -90,6 +90,7 @@ jobs:
                   ,vc-module-tax
                   ,vc-module-test-c
                   ,vc-module-test-d
+                  ,vc-module-test-e
                   ,vc-module-webhooks
                   ,vc-module-white-labeling
                   ,vc-module-x-api
