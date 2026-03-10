@@ -111,10 +111,18 @@ jobs:
       - name: Check SonarCloud project does not exist
         if: ${{ inputs.visibility == 'public' }}
         run: |
-          RESPONSE=$(curl -s \
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
             -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
             "https://sonarcloud.io/api/projects/search?projects=${{ steps.names.outputs.sonarProjectKey }}&organization=${{ secrets.SONAR_ORG_KEY }}")
-          TOTAL=$(echo "$RESPONSE" | grep -o '"total":[0-9]*' | cut -d: -f2)
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP $HTTP_CODE: $BODY"
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::error::SonarCloud project search failed (HTTP $HTTP_CODE): $BODY"
+            exit 1
+          fi
+          TOTAL=$(echo "$BODY" | grep -o '"total":[0-9]*' | cut -d: -f2)
+          echo "Projects found: ${TOTAL:-0}"
           if [ "${TOTAL:-0}" -gt "0" ]; then
             echo "::error::SonarCloud project '${{ steps.names.outputs.sonarProjectKey }}' already exists."
             exit 1
@@ -332,13 +340,20 @@ jobs:
         id: create-sonarcloud
         if: ${{ inputs.visibility == 'public' }}
         run: |
-          curl -sf -X POST \
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
             "https://sonarcloud.io/api/projects/create" \
             --data-urlencode "organization=${{ secrets.SONAR_ORG_KEY }}" \
             --data-urlencode "project=$SONAR_PROJECT_KEY" \
             --data-urlencode "name=$REPO_NAME" \
-            --data-urlencode "visibility=public"
+            --data-urlencode "visibility=public")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP $HTTP_CODE: $BODY"
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::error::SonarCloud project creation failed (HTTP $HTTP_CODE): $BODY"
+            exit 1
+          fi
           echo "created=true" >> $GITHUB_OUTPUT
 
       - name: Turn off Automatic Analysis
