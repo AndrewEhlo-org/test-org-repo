@@ -32,6 +32,14 @@ on:
         required: false
         type: string
         default: '3.1000.0'
+      dotnetVersion:
+        description: '.NET SDK version for template generation'
+        required: false
+        type: choice
+        options:
+          - '10.x'
+          - '8.x'
+        default: '10.x'
       template:
         description: 'Module code template'
         required: false
@@ -168,7 +176,7 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.x'
+          dotnet-version: ${{ inputs.dotnetVersion }}
 
       - name: Install module template
         run: dotnet new install VirtoCommerce.Module.Template
