@@ -377,7 +377,7 @@ jobs:
             if [[ "$VALUE" == *,* ]]; then
               IFS=',' read -ra VALS <<< "$VALUE"
               for V in "${VALS[@]}"; do
-                EXTRA_ARGS+=(--data-urlencode "values[]=$V")
+                EXTRA_ARGS+=(--data-urlencode "values=$V")
               done
             else
               EXTRA_ARGS=(--data-urlencode "value=$VALUE")
