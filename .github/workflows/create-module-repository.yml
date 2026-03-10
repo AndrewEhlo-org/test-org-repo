@@ -77,21 +77,44 @@ jobs:
       - name: Validate template parameters
         env:
           TEMPLATE: ${{ inputs.template }}
+          MODULE_VERSION: ${{ inputs.moduleVersion }}
+          PLATFORM_VERSION: ${{ inputs.platformVersion }}
           XAPI_VERSION: ${{ inputs.xapiVersion }}
           CORE_VERSION: ${{ inputs.coreVersion }}
         run: |
+          SEMVER_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
+          ERRORS=0
+
+          check_version() {
+            local name="$1"
+            local value="$2"
+            if [ -n "$value" ] && ! [[ "$value" =~ $SEMVER_RE ]]; then
+              echo "::error::$name '$value' is not a valid version (expected x.x.x)."
+              ERRORS=$((ERRORS + 1))
+            fi
+          }
+
+          check_version "moduleVersion"   "$MODULE_VERSION"
+          check_version "platformVersion" "$PLATFORM_VERSION"
+
           if [[ "$TEMPLATE" == "vc-module-xapi" || "$TEMPLATE" == "vc-module-dba-xapi" ]]; then
             if [ -z "$XAPI_VERSION" ]; then
               echo "::error::xapiVersion is required for template '$TEMPLATE'."
-              exit 1
+              ERRORS=$((ERRORS + 1))
+            else
+              check_version "xapiVersion" "$XAPI_VERSION"
             fi
           fi
           if [[ "$TEMPLATE" == "vc-module-dba" || "$TEMPLATE" == "vc-module-dba-xapi" ]]; then
             if [ -z "$CORE_VERSION" ]; then
               echo "::error::coreVersion is required for template '$TEMPLATE'."
-              exit 1
+              ERRORS=$((ERRORS + 1))
+            else
+              check_version "coreVersion" "$CORE_VERSION"
             fi
           fi
+
+          [ "$ERRORS" -eq 0 ] || exit 1
 
       - name: Compute and print names
         env:
