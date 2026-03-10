@@ -114,7 +114,8 @@ jobs:
             fi
           fi
 
-          [ "$ERRORS" -eq 0 ] || exit 1
+          if [ "$ERRORS" -gt 0 ]; then exit 1; fi
+          echo "All version inputs are valid."
 
       - name: Compute and print names
         env:
@@ -167,6 +168,7 @@ jobs:
             echo "::error::moduleName '$MODULE_NAME' is invalid. Must start with an uppercase letter and contain only letters and digits (e.g. 'News', 'NewsArticle')."
             exit 1
           fi
+          echo "moduleName '$MODULE_NAME' is valid."
 
       - name: Compute names
         id: names
@@ -196,6 +198,7 @@ jobs:
             echo "::error::Repository ${{ inputs.companyName }}/${{ steps.names.outputs.repoName }} already exists."
             exit 1
           fi
+          echo "Repository ${{ inputs.companyName }}/${{ steps.names.outputs.repoName }} does not exist — proceeding."
 
       - name: Check SonarCloud project does not exist
         if: ${{ inputs.visibility == 'public' }}
@@ -224,6 +227,7 @@ jobs:
             --${{ inputs.visibility }} \
             --description "${{ inputs.companyName }} ${{ inputs.moduleName }} module"
           echo "created=true" >> $GITHUB_OUTPUT
+          echo "Repository created: https://github.com/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }}"
 
       - name: Configure repository settings
         run: |
@@ -303,7 +307,7 @@ jobs:
           echo "Generated directory: $GENERATED_DIR"
           cp -r "$GENERATED_DIR/." repo/
 
-      - name: Add .deployment folder
+      - name: Add deployment config
         run: |
           mkdir -p repo/.deployment/module
           cat > repo/.deployment/module/cloudDeploy.json << EOF
@@ -337,6 +341,7 @@ jobs:
               }
           }
           EOF
+          echo "Deployment config written to .deployment/module/cloudDeploy.json"
 
       - name: Add .github workflows
         run: |
@@ -345,6 +350,7 @@ jobs:
           cp dotgithub/workflow-templates/release.yml                repo/.github/workflows/
           cp dotgithub/workflow-templates/publish-nugets.yml         repo/.github/workflows/
           cp dotgithub/workflow-templates/module-release-hotfix.yml  repo/.github/workflows/
+          echo "Workflows added: module-ci.yml, release.yml, publish-nugets.yml, module-release-hotfix.yml"
 
       - name: Add .github community files
         run: |
@@ -431,12 +437,18 @@ jobs:
           EOF
           )
           for BRANCH in main dev; do
-            echo "Protecting branch: $BRANCH"
-            echo "$POLICY" | gh api \
+            printf "Protecting branch: %s ... " "$BRANCH"
+            if echo "$POLICY" | gh api \
               --method PUT \
               /repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }}/branches/$BRANCH/protection \
-              --input -
+              --input - > /dev/null; then
+              echo "OK"
+            else
+              echo "FAILED"
+              exit 1
+            fi
           done
+          echo "Branches protected: main, dev"
 
       - name: Create SonarCloud project
         id: create-sonarcloud
@@ -463,12 +475,20 @@ jobs:
         # Disables SonarCloud Automatic Analysis so that CI-based analysis
         # (dotnet-sonarscanner in module-ci.yml) is used instead.
         run: |
-          curl -sf -X POST \
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
             -H "Content-Type: application/x-www-form-urlencoded" \
             "https://sonarcloud.io/api/autoscan/activation" \
             --data-urlencode "enable=false" \
-            --data-urlencode "projectKey=$SONAR_PROJECT_KEY"
+            --data-urlencode "projectKey=$SONAR_PROJECT_KEY")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP $HTTP_CODE: $BODY"
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::error::Failed to disable Automatic Analysis (HTTP $HTTP_CODE): $BODY"
+            exit 1
+          fi
+          echo "Automatic Analysis disabled."
 
       - name: Configure analysis scope
         if: ${{ inputs.visibility == 'public' }}
@@ -536,12 +556,14 @@ jobs:
             --method PATCH \
             /repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }}/properties/values \
             --input -
+          echo "Core properties set: module-template, module-id, platform-version, dotnet-version, created-by, created-at, workflow-run"
 
           if [ "${{ inputs.visibility }}" = "public" ]; then
             echo '{"properties":[{"property_name":"sonar-key","value":"${{ steps.names.outputs.sonarProjectKey }}"}]}' | gh api \
               --method PATCH \
               /repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }}/properties/values \
               --input -
+            echo "SonarCloud property set: sonar-key=${{ steps.names.outputs.sonarProjectKey }}"
           fi
 
       - name: Register repository in deploy-module-workflows.yml
@@ -577,8 +599,13 @@ jobs:
           PYEOF
 
           git add "$FILE"
-          git diff --cached --quiet || git commit -m "ci: Add $NEW_REPO to deploy-module-workflows"
-          git push
+          if git diff --cached --quiet; then
+            echo "$NEW_REPO was already in deploy-module-workflows.yml — no commit needed."
+          else
+            git commit -m "ci: Add $NEW_REPO to deploy-module-workflows"
+            git push
+            echo "$NEW_REPO registered in deploy-module-workflows.yml."
+          fi
 
       - name: Delete GitHub repository (rollback)
         if: failure() && steps.create-repo.outputs.created == 'true'
