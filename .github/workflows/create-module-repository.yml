@@ -372,17 +372,27 @@ jobs:
         if: ${{ inputs.visibility == 'public' }}
         run: |
           set_setting() {
+            local KEY="$1" VALUE="$2"
+            local EXTRA_ARGS=()
+            if [[ "$VALUE" == *,* ]]; then
+              IFS=',' read -ra VALS <<< "$VALUE"
+              for V in "${VALS[@]}"; do
+                EXTRA_ARGS+=(--data-urlencode "values[]=$V")
+              done
+            else
+              EXTRA_ARGS=(--data-urlencode "value=$VALUE")
+            fi
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
               -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
               "https://sonarcloud.io/api/settings/set" \
               --data-urlencode "component=$SONAR_PROJECT_KEY" \
-              --data-urlencode "key=$1" \
-              --data-urlencode "value=$2")
+              --data-urlencode "key=$KEY" \
+              "${EXTRA_ARGS[@]}")
             HTTP_CODE=$(echo "$RESPONSE" | tail -1)
             BODY=$(echo "$RESPONSE" | head -n -1)
-            echo "[$1] HTTP $HTTP_CODE: $BODY"
+            echo "[$KEY] HTTP $HTTP_CODE: $BODY"
             if [ "$HTTP_CODE" -ge 400 ]; then
-              echo "::error::Failed to set $1 (HTTP $HTTP_CODE): $BODY"
+              echo "::error::Failed to set $KEY (HTTP $HTTP_CODE): $BODY"
               exit 1
             fi
           }
