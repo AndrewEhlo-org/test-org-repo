@@ -28,7 +28,12 @@ on:
         type: string
         default: '3.1000.0'
       coreVersion:
-        description: 'Required core module version'
+        description: 'Required core module version (vc-module-dba, vc-module-dba-xapi)'
+        required: false
+        type: string
+        default: '3.1000.0'
+      xapiVersion:
+        description: 'Required XAPI module version (vc-module-xapi, vc-module-dba-xapi)'
         required: false
         type: string
         default: '3.1000.0'
@@ -48,7 +53,6 @@ on:
           - vc-module-dba
           - vc-module-dba-xapi
           - vc-module-xapi
-          - vc-crud
         default: 'vc-module-dba'
       visibility:
         description: 'Repository visibility'
@@ -67,7 +71,61 @@ concurrency:
 
 jobs:
 
+  summarize-inputs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate template parameters
+        env:
+          TEMPLATE: ${{ inputs.template }}
+          XAPI_VERSION: ${{ inputs.xapiVersion }}
+          CORE_VERSION: ${{ inputs.coreVersion }}
+        run: |
+          if [[ "$TEMPLATE" == "vc-module-xapi" || "$TEMPLATE" == "vc-module-dba-xapi" ]]; then
+            if [ -z "$XAPI_VERSION" ]; then
+              echo "::error::xapiVersion is required for template '$TEMPLATE'."
+              exit 1
+            fi
+          fi
+          if [[ "$TEMPLATE" == "vc-module-dba" || "$TEMPLATE" == "vc-module-dba-xapi" ]]; then
+            if [ -z "$CORE_VERSION" ]; then
+              echo "::error::coreVersion is required for template '$TEMPLATE'."
+              exit 1
+            fi
+          fi
+
+      - name: Compute and print names
+        env:
+          MODULE_NAME: ${{ inputs.moduleName }}
+          COMPANY_NAME: ${{ inputs.companyName }}
+        run: |
+          KEBAB=$(echo "$MODULE_NAME" | sed 's/\([A-Z]\)/-\1/g' | sed 's/^-//' | tr '[:upper:]' '[:lower:]')
+          REPO_NAME="vc-module-${KEBAB}"
+          MODULE_ID="${COMPANY_NAME}.${MODULE_NAME}"
+          SONAR_KEY="${COMPANY_NAME}_${REPO_NAME}"
+
+          echo "### Inputs"                                          >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter       | Value |"                        >> $GITHUB_STEP_SUMMARY
+          echo "|-----------------|-------|"                        >> $GITHUB_STEP_SUMMARY
+          echo "| moduleName      | ${{ inputs.moduleName }} |"     >> $GITHUB_STEP_SUMMARY
+          echo "| companyName     | ${{ inputs.companyName }} |"    >> $GITHUB_STEP_SUMMARY
+          echo "| author          | ${{ inputs.author }} |"         >> $GITHUB_STEP_SUMMARY
+          echo "| moduleVersion   | ${{ inputs.moduleVersion }} |"  >> $GITHUB_STEP_SUMMARY
+          echo "| platformVersion | ${{ inputs.platformVersion }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| coreVersion     | ${{ inputs.coreVersion }} |"    >> $GITHUB_STEP_SUMMARY
+          echo "| xapiVersion     | ${{ inputs.xapiVersion }} |"    >> $GITHUB_STEP_SUMMARY
+          echo "| dotnetVersion   | ${{ inputs.dotnetVersion }} |"  >> $GITHUB_STEP_SUMMARY
+          echo "| template        | ${{ inputs.template }} |"       >> $GITHUB_STEP_SUMMARY
+          echo "| visibility      | ${{ inputs.visibility }} |"     >> $GITHUB_STEP_SUMMARY
+          echo ""                                                    >> $GITHUB_STEP_SUMMARY
+          echo "### Computed names"                                  >> $GITHUB_STEP_SUMMARY
+          echo "| Name              | Value |"                      >> $GITHUB_STEP_SUMMARY
+          echo "|-------------------|-------|"                      >> $GITHUB_STEP_SUMMARY
+          echo "| Repository        | ${COMPANY_NAME}/${REPO_NAME} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Module ID         | ${MODULE_ID} |"               >> $GITHUB_STEP_SUMMARY
+          echo "| SonarCloud key    | ${SONAR_KEY} |"               >> $GITHUB_STEP_SUMMARY
+
   create-module-repository:
+    needs: summarize-inputs
     runs-on: ubuntu-latest
     # Requires manual approval from a designated reviewer before any resources are created.
     # Configure required reviewers at: Settings → Environments → create-org-repo
@@ -182,15 +240,27 @@ jobs:
         run: dotnet new install VirtoCommerce.Module.Template
 
       - name: Generate module code
+        env:
+          TEMPLATE: ${{ inputs.template }}
         run: |
-          dotnet new ${{ inputs.template }} \
-            --output /tmp/generated \
-            --ModuleName "${{ inputs.moduleName }}" \
-            --CompanyName "${{ inputs.companyName }}" \
-            --Author "${{ inputs.author }}" \
-            --ModuleVersion "${{ inputs.moduleVersion }}" \
-            --PlatformVersion "${{ inputs.platformVersion }}" \
-            --CoreVersion "${{ inputs.coreVersion }}"
+          # Common args accepted by all module templates
+          ARGS=(
+            --output /tmp/generated
+            --ModuleName "${{ inputs.moduleName }}"
+            --CompanyName "${{ inputs.companyName }}"
+            --Author "${{ inputs.author }}"
+            --ModuleVersion "${{ inputs.moduleVersion }}"
+            --PlatformVersion "${{ inputs.platformVersion }}"
+          )
+          # CoreVersion: vc-module-dba, vc-module-dba-xapi only
+          if [[ "$TEMPLATE" == "vc-module-dba" || "$TEMPLATE" == "vc-module-dba-xapi" ]]; then
+            ARGS+=(--CoreVersion "${{ inputs.coreVersion }}")
+          fi
+          # XapiVersion: vc-module-xapi, vc-module-dba-xapi only
+          if [[ "$TEMPLATE" == "vc-module-xapi" || "$TEMPLATE" == "vc-module-dba-xapi" ]]; then
+            ARGS+=(--XapiVersion "${{ inputs.xapiVersion }}")
+          fi
+          dotnet new "$TEMPLATE" "${ARGS[@]}"
 
       - name: Clone new repository
         run: |
@@ -412,52 +482,79 @@ jobs:
           set_setting "sonar.coverage.exclusions"       values "**/Migrations/**,**/Tests/**,**/*.Designer.cs"
           set_setting "sonar.cs.opencover.reportsPaths" values "artifacts/tests/**/*.xml"
 
-      # ── Notify ───────────────────────────────────────────────────────────────
+      # ── Metadata ─────────────────────────────────────────────────────────────
 
-      - name: Create tracking issue
-        # Issue creation failure does not fail the workflow — repo setup is already complete.
+      - name: Set repository custom properties
+        # Property schemas must be pre-defined in the org:
+        # Settings → Custom properties → New property
+        # Required properties: module-template, module-id, platform-version,
+        #   dotnet-version, created-by, created-at, workflow-run
+        # Optional: sonar-key (set only for public repos)
+        # Failure here does not fail the workflow — repo setup is already complete.
         continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.REPO_TOKEN }}
         run: |
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          REPO_URL="https://github.com/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }}"
-
-          cat > /tmp/issue-body.md << EOF
-          ## Module Repository Created
-
-          | Field | Value |
-          |-------|-------|
-          | **Repository** | [${{ inputs.companyName }}/${{ steps.names.outputs.repoName }}]($REPO_URL) |
-          | **Module ID** | ${{ steps.names.outputs.moduleId }} |
-          | **Template** | ${{ inputs.template }} |
-          | **Visibility** | ${{ inputs.visibility }} |
-          | **Module version** | ${{ inputs.moduleVersion }} |
-          | **Platform version** | ${{ inputs.platformVersion }} |
-          | **Core version** | ${{ inputs.coreVersion }} |
-          | **Author** | ${{ inputs.author }} |
-          | **Triggered by** | @${{ github.actor }} |
-          | **Workflow run** | [Run #${{ github.run_number }}]($RUN_URL) |
+          CREATED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          PROPS=$(cat << EOF
+          {
+            "properties": [
+              { "property_name": "module-template",    "value": "${{ inputs.template }}" },
+              { "property_name": "module-id",          "value": "${{ steps.names.outputs.moduleId }}" },
+              { "property_name": "platform-version",   "value": "${{ inputs.platformVersion }}" },
+              { "property_name": "dotnet-version",     "value": "${{ inputs.dotnetVersion }}" },
+              { "property_name": "created-by",         "value": "${{ github.actor }}" },
+              { "property_name": "created-at",         "value": "$CREATED_AT" },
+              { "property_name": "workflow-run",       "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" }
+            ]
+          }
           EOF
+          )
+          echo "$PROPS" | gh api \
+            --method PATCH \
+            /repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }}/properties/values \
+            --input -
 
           if [ "${{ inputs.visibility }}" = "public" ]; then
-            SONAR_URL="https://sonarcloud.io/project/overview?id=${{ steps.names.outputs.sonarProjectKey }}"
-            echo "| **SonarCloud** | [${{ steps.names.outputs.sonarProjectKey }}]($SONAR_URL) |" >> /tmp/issue-body.md
+            echo '{"properties":[{"property_name":"sonar-key","value":"${{ steps.names.outputs.sonarProjectKey }}"}]}' | gh api \
+              --method PATCH \
+              /repos/${{ inputs.companyName }}/${{ steps.names.outputs.repoName }}/properties/values \
+              --input -
           fi
 
-          cat >> /tmp/issue-body.md << 'EOF'
+      - name: Register repository in deploy-module-workflows.yml
+        # Inserts the new repo into the sorted matrix list and commits back.
+        # Failure here does not fail the workflow — repo setup is already complete.
+        # Git user identity is already configured by the Setup Git credentials step.
+        continue-on-error: true
+        working-directory: dotgithub
+        run: |
+          NEW_REPO="${{ steps.names.outputs.repoName }}"
+          FILE=".github/workflows/deploy-module-workflows.yml"
 
-          ## Next steps
-          - [ ] Verify team access: `platform` (write), `virto-commerce` (maintain), `virto-operations` (admin)
-          - [ ] Push to `dev` to trigger the first CI run — registers required status check names for branch protection
-          - [ ] Update `README.md` with module description
-          - [ ] Configure SonarCloud project (if visibility is public and not done automatically)
-          EOF
+          python3 - "$NEW_REPO" "$FILE" << 'PYEOF'
+          import sys, re
+          repo, path = sys.argv[1], sys.argv[2]
+          with open(path) as f:
+              content = f.read()
+          m = re.search(r'(        repoName: \[)([\s\S]*?)(\])', content)
+          if not m:
+              sys.exit('repoName list not found')
+          entries = [e.strip().lstrip(',') for e in m.group(2).splitlines() if e.strip()]
+          if repo in entries:
+              print(f'{repo} already in list — nothing to do')
+              sys.exit(0)
+          entries.append(repo)
+          entries.sort()
+          indent = '                  '
+          new_body = entries[0] + ''.join(f'\n{indent},{e}' for e in entries[1:])
+          new_content = content[:m.start()] + m.group(1) + new_body + '\n' + indent + m.group(3) + content[m.end():]
+          with open(path, 'w') as f:
+              f.write(new_content)
+          print(f'Added {repo}')
+          PYEOF
 
-          gh issue create \
-            --repo "${{ github.repository }}" \
-            --title "New module: ${{ inputs.companyName }}/${{ steps.names.outputs.repoName }}" \
-            --body-file /tmp/issue-body.md
+          git add "$FILE"
+          git diff --cached --quiet || git commit -m "ci: Add $NEW_REPO to deploy-module-workflows"
+          git push
 
       - name: Delete GitHub repository (rollback)
         if: failure() && steps.create-repo.outputs.created == 'true'
