@@ -11,12 +11,12 @@ on:
         description: 'Company namespace prefix'
         required: false
         type: string
-        default: 'AndrewEhlo-org'
+        default: 'AndrewEhloOrg'
       author:
         description: 'Module author name'
         required: false
         type: string
-        default: 'AndrewEhlo-org'
+        default: 'AndrewEhloOrg'
       moduleVersion:
         description: 'Initial module version'
         required: false
