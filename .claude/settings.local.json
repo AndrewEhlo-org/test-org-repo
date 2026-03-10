@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:sonarcloud.io)",
+      "WebSearch",
+      "WebFetch(domain:docs.sonarsource.com)",
+      "WebFetch(domain:community.sonarsource.com)"
+    ]
+  }
+}
