@@ -371,10 +371,12 @@ jobs:
       - name: Configure analysis scope
         if: ${{ inputs.visibility == 'public' }}
         run: |
+          # set_setting <key> <param> <value[,value,...]>
+          # param: "value" for single-value settings, "values" for multi-value settings
           set_setting() {
-            local KEY="$1" VALUE="$2"
+            local KEY="$1" PARAM="$2" VALUE="$3"
             local EXTRA_ARGS=()
-            if [[ "$VALUE" == *,* ]]; then
+            if [[ "$PARAM" == "values" ]]; then
               IFS=',' read -ra VALS <<< "$VALUE"
               for V in "${VALS[@]}"; do
                 EXTRA_ARGS+=(--data-urlencode "values=$V")
@@ -396,11 +398,11 @@ jobs:
               exit 1
             fi
           }
-          set_setting "sonar.sources"                      "src"
-          set_setting "sonar.tests"                        "tests"
-          set_setting "sonar.exclusions"                   "**/Migrations/**,**/Scripts/**,**/node_modules/**,**/*.Designer.cs"
-          set_setting "sonar.coverage.exclusions"          "**/Migrations/**,**/Tests/**,**/*.Designer.cs"
-          set_setting "sonar.cs.opencover.reportsPaths"    "artifacts/tests/**/*.xml"
+          set_setting "sonar.sources"                   value  "src"
+          set_setting "sonar.tests"                     value  "tests"
+          set_setting "sonar.exclusions"                values "**/Migrations/**,**/Scripts/**,**/node_modules/**,**/*.Designer.cs"
+          set_setting "sonar.coverage.exclusions"       values "**/Migrations/**,**/Tests/**,**/*.Designer.cs"
+          set_setting "sonar.cs.opencover.reportsPaths" values "artifacts/tests/**/*.xml"
 
       # ── Notify ───────────────────────────────────────────────────────────────
 
