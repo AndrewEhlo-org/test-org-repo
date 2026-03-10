@@ -372,12 +372,19 @@ jobs:
         if: ${{ inputs.visibility == 'public' }}
         run: |
           set_setting() {
-            curl -sf -X POST \
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
               -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
               "https://sonarcloud.io/api/settings/set" \
               --data-urlencode "component=$SONAR_PROJECT_KEY" \
               --data-urlencode "key=$1" \
-              --data-urlencode "value=$2"
+              --data-urlencode "value=$2")
+            HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+            BODY=$(echo "$RESPONSE" | head -n -1)
+            echo "[$1] HTTP $HTTP_CODE: $BODY"
+            if [ "$HTTP_CODE" -ge 400 ]; then
+              echo "::error::Failed to set $1 (HTTP $HTTP_CODE): $BODY"
+              exit 1
+            fi
           }
           set_setting "sonar.sources"                      "src"
           set_setting "sonar.tests"                        "tests"
@@ -443,25 +450,25 @@ jobs:
             echo "::warning::Delete attempt failed: $DELETE_OUTPUT"
           fi
 
-    #   - name: Delete SonarCloud project (rollback)
-    #     if: failure() && steps.create-sonarcloud.outputs.created == 'true'
-    #     run: |
-    #       if [ -z "$SONAR_PROJECT_KEY" ]; then
-    #         echo "SonarCloud project key not available (failed before computing names) — nothing to clean up."
-    #         exit 0
-    #       fi
-    #       RESPONSE=$(curl -s \
-    #         -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
-    #         "https://sonarcloud.io/api/projects/search?projects=$SONAR_PROJECT_KEY&organization=${{ secrets.SONAR_ORG_KEY }}" \
-    #         2>/dev/null || echo '{}')
-    #       TOTAL=$(echo "$RESPONSE" | grep -o '"total":[0-9]*' | cut -d: -f2)
-    #       if [ "${TOTAL:-0}" -gt "0" ]; then
-    #         echo "Deleting SonarCloud project $SONAR_PROJECT_KEY..."
-    #         curl -sf -X POST \
-    #           -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
-    #           "https://sonarcloud.io/api/projects/delete" \
-    #           --data-urlencode "project=$SONAR_PROJECT_KEY"
-    #         echo "SonarCloud project deleted."
-    #       else
-    #         echo "SonarCloud project does not exist — nothing to clean up."
-    #       fi
+      - name: Delete SonarCloud project (rollback)
+        if: failure() && steps.create-sonarcloud.outputs.created == 'true'
+        run: |
+          if [ -z "$SONAR_PROJECT_KEY" ]; then
+            echo "SonarCloud project key not available (failed before computing names) — nothing to clean up."
+            exit 0
+          fi
+          RESPONSE=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
+            "https://sonarcloud.io/api/projects/search?projects=$SONAR_PROJECT_KEY&organization=${{ secrets.SONAR_ORG_KEY }}" \
+            2>/dev/null || echo '{}')
+          TOTAL=$(echo "$RESPONSE" | grep -o '"total":[0-9]*' | cut -d: -f2)
+          if [ "${TOTAL:-0}" -gt "0" ]; then
+            echo "Deleting SonarCloud project $SONAR_PROJECT_KEY..."
+            curl -sf -X POST \
+              -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
+              "https://sonarcloud.io/api/projects/delete" \
+              --data-urlencode "project=$SONAR_PROJECT_KEY"
+            echo "SonarCloud project deleted."
+          else
+            echo "SonarCloud project does not exist — nothing to clean up."
+          fi
