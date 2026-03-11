@@ -22,11 +22,11 @@ on:
         required: false
         type: string
       platformVersion:
-        description: 'Required platform version'
+        description: 'Required PLATFORM version'
         required: false
         type: string
       coreVersion:
-        description: 'Required core module version (vc-module-dba, vc-module-dba-xapi)'
+        description: 'Required CORE module version (vc-module-dba, vc-module-dba-xapi)'
         required: false
         type: string
       xapiVersion:
