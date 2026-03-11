@@ -21,22 +21,18 @@ on:
         description: 'Initial module version'
         required: false
         type: string
-        default: '3.1000.0'
       platformVersion:
         description: 'Required platform version'
         required: false
         type: string
-        default: '3.1000.0'
       coreVersion:
         description: 'Required core module version (vc-module-dba, vc-module-dba-xapi)'
         required: false
         type: string
-        default: '3.1000.0'
       xapiVersion:
         description: 'Required XAPI module version (vc-module-xapi, vc-module-dba-xapi)'
         required: false
         type: string
-        default: '3.1000.0'
       dotnetVersion:
         description: '.NET SDK version for template generation'
         required: false
