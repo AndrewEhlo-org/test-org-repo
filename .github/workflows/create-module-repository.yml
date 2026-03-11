@@ -41,6 +41,14 @@ on:
           - '10.x'
           - '8.x'
         default: '10.x'
+      templateVersion:
+        description: 'VirtoCommerce.Module.Template NuGet version (empty = latest)'
+        required: false
+        type: choice
+        options:
+          - ''
+          - '3.809.0'
+        default: ''
       template:
         description: 'Module code template'
         required: false
@@ -261,7 +269,12 @@ jobs:
           dotnet-version: ${{ inputs.dotnetVersion }}
 
       - name: Install module template
-        run: dotnet new install VirtoCommerce.Module.Template
+        run: |
+          if [ -n "${{ inputs.templateVersion }}" ]; then
+            dotnet new install "VirtoCommerce.Module.Template::${{ inputs.templateVersion }}"
+          else
+            dotnet new install VirtoCommerce.Module.Template
+          fi
 
       - name: Generate module code
         env:
