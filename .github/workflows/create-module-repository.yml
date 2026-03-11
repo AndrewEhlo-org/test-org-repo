@@ -1,4 +1,5 @@
 name: Create Module Repository
+run-name: "Create module: ${{ inputs.companyName }} / ${{ inputs.moduleName }}"
 
 on:
   workflow_dispatch:
