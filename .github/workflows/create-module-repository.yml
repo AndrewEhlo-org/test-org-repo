@@ -126,6 +126,7 @@ jobs:
         env:
           MODULE_NAME: ${{ inputs.moduleName }}
           COMPANY_NAME: ${{ inputs.companyName }}
+          TEMPLATE_VERSION: ${{ inputs.templateVersion }}
         run: |
           KEBAB=$(echo "$MODULE_NAME" | sed 's/\([A-Z]\)/-\1/g' | sed 's/^-//' | tr '[:upper:]' '[:lower:]')
           REPO_NAME="vc-module-${KEBAB}"
@@ -143,6 +144,7 @@ jobs:
           echo "| coreVersion     | ${{ inputs.coreVersion }} |"    >> $GITHUB_STEP_SUMMARY
           echo "| xapiVersion     | ${{ inputs.xapiVersion }} |"    >> $GITHUB_STEP_SUMMARY
           echo "| dotnetVersion   | ${{ inputs.dotnetVersion }} |"  >> $GITHUB_STEP_SUMMARY
+          echo "| templateVersion | ${TEMPLATE_VERSION:-latest} |" >> $GITHUB_STEP_SUMMARY
           echo "| template        | ${{ inputs.template }} |"       >> $GITHUB_STEP_SUMMARY
           echo "| visibility      | ${{ inputs.visibility }} |"     >> $GITHUB_STEP_SUMMARY
           echo ""                                                    >> $GITHUB_STEP_SUMMARY
