@@ -465,6 +465,21 @@ jobs:
             exit 1
           fi
           echo "created=true" >> $GITHUB_OUTPUT
+          echo "SonarCloud project created: $SONAR_PROJECT_KEY"
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
+            "https://sonarcloud.io/api/project_branches/rename" \
+            --data-urlencode "project=$SONAR_PROJECT_KEY" \
+            --data-urlencode "name=main")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "HTTP $HTTP_CODE: $BODY"
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::error::Failed to rename main branch in SonarCloud (HTTP $HTTP_CODE): $BODY"
+            exit 1
+          fi
+          echo "SonarCloud main branch renamed to: main"
 
       - name: Turn off Automatic Analysis
         if: ${{ inputs.visibility == 'public' }}
