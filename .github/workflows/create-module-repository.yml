@@ -487,28 +487,10 @@ jobs:
       - name: Bind SonarCloud project to GitHub repository
         if: ${{ inputs.visibility == 'public' }}
         run: |
-          # Discover the GitHub ALM setting key configured in this SonarCloud org
-          RESPONSE=$(curl -s -w "\n%{http_code}" \
-            -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
-            "https://sonarcloud.io/api/alm_settings/list_definitions?organization=${{ secrets.SONAR_ORG_KEY }}")
-          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-          BODY=$(echo "$RESPONSE" | head -n -1)
-          echo "HTTP $HTTP_CODE: $BODY"
-          if [ "$HTTP_CODE" -ge 400 ]; then
-            echo "::error::Failed to list ALM definitions (HTTP $HTTP_CODE): $BODY"
-            exit 1
-          fi
-          ALM_KEY=$(echo "$BODY" | grep -o '"github":\[{"key":"[^"]*"' | grep -o '"key":"[^"]*"' | head -1 | cut -d'"' -f4)
-          if [ -z "$ALM_KEY" ]; then
-            echo "::error::No GitHub ALM setting found in SonarCloud org."
-            exit 1
-          fi
-          echo "GitHub ALM key: $ALM_KEY"
-
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
             "https://sonarcloud.io/api/alm_settings/set_github_binding" \
-            --data-urlencode "almSetting=$ALM_KEY" \
+            --data-urlencode "almSetting=${{ secrets.SONAR_ORG_KEY }}" \
             --data-urlencode "project=$SONAR_PROJECT_KEY" \
             --data-urlencode "repository=${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }}" \
             --data-urlencode "monorepo=false" \
