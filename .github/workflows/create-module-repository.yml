@@ -213,6 +213,8 @@ jobs:
           gh repo create ${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }} \
             --${{ inputs.visibility }} \
             --description "${{ inputs.companyName }} ${{ inputs.moduleName }} module"
+          REPO_ID=$(gh api repos/${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }} --jq '.id')
+          echo "repoId=$REPO_ID" >> $GITHUB_OUTPUT
           echo "created=true" >> $GITHUB_OUTPUT
           echo "Repository created: https://github.com/${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }}"
 
@@ -433,13 +435,14 @@ jobs:
         id: create-sonarcloud
         if: ${{ inputs.visibility == 'public' }}
         run: |
+          # provision_projects creates the SonarCloud project and binds it to the GitHub repo in one call.
+          # installationKeys format: {github-org}/{repo-name}|{github-repo-id}
+          INSTALLATION_KEY="${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }}|${{ steps.create-repo.outputs.repoId }}"
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
-            "https://sonarcloud.io/api/projects/create" \
-            --data-urlencode "organization=${{ secrets.SONAR_ORG_KEY }}" \
-            --data-urlencode "project=$SONAR_PROJECT_KEY" \
-            --data-urlencode "name=$REPO_NAME" \
-            --data-urlencode "visibility=public")
+            "https://sonarcloud.io/api/alm_integration/provision_projects" \
+            --data-urlencode "installationKeys=$INSTALLATION_KEY" \
+            --data-urlencode "organization=${{ secrets.SONAR_ORG_KEY }}")
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | head -n -1)
           echo "HTTP $HTTP_CODE: $BODY"
@@ -448,7 +451,15 @@ jobs:
             exit 1
           fi
           echo "created=true" >> $GITHUB_OUTPUT
-          echo "SonarCloud project created: $SONAR_PROJECT_KEY"
+          # Extract the actual project key assigned by SonarCloud (may differ from our computed key
+          # if SONAR_ORG_KEY != inputs.companyName). Override SONAR_PROJECT_KEY for subsequent steps.
+          PROVISIONED_KEY=$(echo "$BODY" | grep -o '"projectKey":"[^"]*"' | head -1 | cut -d'"' -f4)
+          if [ -n "$PROVISIONED_KEY" ] && [ "$PROVISIONED_KEY" != "$SONAR_PROJECT_KEY" ]; then
+            echo "::warning::Provisioned project key '$PROVISIONED_KEY' differs from computed '$SONAR_PROJECT_KEY'. Using provisioned key."
+            echo "SONAR_PROJECT_KEY=$PROVISIONED_KEY" >> $GITHUB_ENV
+            SONAR_PROJECT_KEY="$PROVISIONED_KEY"
+          fi
+          echo "SonarCloud project created and bound to GitHub: ${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }}"
 
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
@@ -483,26 +494,6 @@ jobs:
             exit 1
           fi
           echo "Automatic Analysis disabled."
-
-      - name: Bind SonarCloud project to GitHub repository
-        if: ${{ inputs.visibility == 'public' }}
-        run: |
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
-            "https://sonarcloud.io/api/alm_settings/set_github_binding" \
-            --data-urlencode "almSetting=${{ secrets.SONAR_ORG_KEY }}" \
-            --data-urlencode "project=$SONAR_PROJECT_KEY" \
-            --data-urlencode "repository=${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }}" \
-            --data-urlencode "monorepo=false" \
-            --data-urlencode "summaryCommentEnabled=true")
-          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-          BODY=$(echo "$RESPONSE" | head -n -1)
-          echo "HTTP $HTTP_CODE: $BODY"
-          if [ "$HTTP_CODE" -ge 400 ]; then
-            echo "::error::Failed to bind SonarCloud project to GitHub (HTTP $HTTP_CODE): $BODY"
-            exit 1
-          fi
-          echo "SonarCloud project bound to ${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }}"
 
       - name: Configure analysis scope
         if: ${{ inputs.visibility == 'public' }}
