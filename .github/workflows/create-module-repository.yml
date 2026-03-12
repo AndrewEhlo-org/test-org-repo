@@ -28,23 +28,23 @@ on:
         type: string
         default: 'AndrewEhloOrg'
       moduleVersion:
-        description: 'Initial module version'
+        description: '(Optional) Initial module version'
         required: false
         type: string
       platformVersion:
-        description: 'PLATFORM version'
+        description: '(Optional) PLATFORM version'
         required: false
         type: string
       coreVersion:
-        description: 'CORE module version (vc-module-dba, vc-module-dba-xapi)'
+        description: '(Optional) CORE module version (vc-module-dba, vc-module-dba-xapi)'
         required: false
         type: string
       xapiVersion:
-        description: 'XAPI module version (vc-module-xapi, vc-module-dba-xapi)'
+        description: '(Optional) XAPI module version (vc-module-xapi, vc-module-dba-xapi)'
         required: false
         type: string
       templateVersion:
-        description: 'VirtoCommerce.Module.Template NuGet version (empty = latest)'
+        description: '(Optional) VirtoCommerce.Module.Template NuGet version (empty = latest)'
         required: false
         type: choice
         options:
@@ -410,26 +410,33 @@ jobs:
           done
           echo "Branches protected: main, dev"
 
-      - name: Create SonarCloud project
+      - name: Configure SonarCloud project
         id: create-sonarcloud
         if: ${{ inputs.visibility == 'public' }}
         run: |
-          # provision_projects creates the SonarCloud project and binds it to the GitHub repo in one call.
+          # sonar_post <label> <endpoint> [curl-args...]
+          sonar_post() {
+            local LABEL="$1" ENDPOINT="$2"; shift 2
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+              -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
+              "https://sonarcloud.io/$ENDPOINT" "$@")
+            HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+            BODY=$(echo "$RESPONSE" | head -n -1)
+            echo "[$LABEL] HTTP $HTTP_CODE: $BODY"
+            if [ "$HTTP_CODE" -ge 400 ]; then
+              echo "::error::$LABEL failed (HTTP $HTTP_CODE): $BODY"
+              exit 1
+            fi
+          }
+
+          # Create project and bind to GitHub in one call.
           # installationKeys format: {github-org}/{repo-name}|{github-repo-id}
           INSTALLATION_KEY="${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }}|${{ steps.create-repo.outputs.repoId }}"
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
-            "https://sonarcloud.io/api/alm_integration/provision_projects" \
+          sonar_post "provision_projects" "api/alm_integration/provision_projects" \
             --data-urlencode "installationKeys=$INSTALLATION_KEY" \
-            --data-urlencode "organization=${{ secrets.SONAR_ORG_KEY }}")
-          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-          BODY=$(echo "$RESPONSE" | head -n -1)
-          echo "HTTP $HTTP_CODE: $BODY"
-          if [ "$HTTP_CODE" -ge 400 ]; then
-            echo "::error::SonarCloud project creation failed (HTTP $HTTP_CODE): $BODY"
-            exit 1
-          fi
+            --data-urlencode "organization=${{ secrets.SONAR_ORG_KEY }}"
           echo "created=true" >> $GITHUB_OUTPUT
+
           # Extract the actual project key assigned by SonarCloud (may differ from our computed key
           # if SONAR_ORG_KEY != inputs.companyName). Override SONAR_PROJECT_KEY for subsequent steps.
           PROVISIONED_KEY=$(echo "$BODY" | grep -o '"projectKey":"[^"]*"' | head -1 | cut -d'"' -f4)
@@ -440,67 +447,32 @@ jobs:
           fi
           echo "SonarCloud project created and bound to GitHub: ${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }}"
 
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
-            "https://sonarcloud.io/api/project_branches/rename" \
+          # Rename default branch to main
+          sonar_post "project_branches/rename" "api/project_branches/rename" \
             --data-urlencode "project=$SONAR_PROJECT_KEY" \
-            --data-urlencode "name=main")
-          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-          BODY=$(echo "$RESPONSE" | head -n -1)
-          echo "HTTP $HTTP_CODE: $BODY"
-          if [ "$HTTP_CODE" -ge 400 ]; then
-            echo "::error::Failed to rename main branch in SonarCloud (HTTP $HTTP_CODE): $BODY"
-            exit 1
-          fi
+            --data-urlencode "name=main"
           echo "SonarCloud main branch renamed to: main"
 
-      - name: Turn off Automatic Analysis
-        if: ${{ inputs.visibility == 'public' }}
-        # Disables SonarCloud Automatic Analysis so that CI-based analysis
-        # (dotnet-sonarscanner in module-ci.yml) is used instead.
-        run: |
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            "https://sonarcloud.io/api/autoscan/activation" \
+          # Disable Automatic Analysis — CI-based analysis (dotnet-sonarscanner) is used instead
+          sonar_post "autoscan/disable" "api/autoscan/activation" \
             --data-urlencode "enable=false" \
-            --data-urlencode "projectKey=$SONAR_PROJECT_KEY")
-          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-          BODY=$(echo "$RESPONSE" | head -n -1)
-          echo "HTTP $HTTP_CODE: $BODY"
-          if [ "$HTTP_CODE" -ge 400 ]; then
-            echo "::error::Failed to disable Automatic Analysis (HTTP $HTTP_CODE): $BODY"
-            exit 1
-          fi
+            --data-urlencode "projectKey=$SONAR_PROJECT_KEY"
           echo "Automatic Analysis disabled."
 
-      - name: Configure new code definition
-        if: ${{ inputs.visibility == 'public' }}
-        run: |
+          # Set New Code definition to "Previous version"
           for KEY in sonar.leak.period sonar.leak.period.type; do
-            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-              -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
-              "https://sonarcloud.io/api/settings/set" \
+            sonar_post "$KEY" "api/settings/set" \
               --data-urlencode "component=$SONAR_PROJECT_KEY" \
               --data-urlencode "key=$KEY" \
-              --data-urlencode "value=previous_version")
-            HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-            BODY=$(echo "$RESPONSE" | head -n -1)
-            echo "[$KEY] HTTP $HTTP_CODE: $BODY"
-            if [ "$HTTP_CODE" -ge 400 ]; then
-              echo "::error::Failed to set $KEY (HTTP $HTTP_CODE): $BODY"
-              exit 1
-            fi
+              --data-urlencode "value=previous_version"
           done
           echo "New Code definition set to: Previous version"
-
-      # ── Metadata ─────────────────────────────────────────────────────────────
 
       - name: Set repository custom properties
         # Property schemas must be pre-defined in the org:
         # Settings → Custom properties → New property
         # Required properties: module-template, module-id, platform-version,
-        #   dotnet-version, created-by, created-at, workflow-run
+        #   created-by, created-at, workflow-run
         # Optional: sonar-key (set only for public repos)
         # Failure here does not fail the workflow — repo setup is already complete.
         continue-on-error: true
@@ -523,7 +495,7 @@ jobs:
             --method PATCH \
             /repos/${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }}/properties/values \
             --input -
-          echo "Core properties set: module-template, module-id, platform-version, dotnet-version, created-by, created-at, workflow-run"
+          echo "Core properties set: module-template, module-id, platform-version, created-by, created-at, workflow-run"
 
           if [ "${{ inputs.visibility }}" = "public" ]; then
             echo '{"properties":[{"property_name":"sonar-key","value":"${{ needs.summarize-inputs.outputs.sonarProjectKey }}"}]}' | gh api \
