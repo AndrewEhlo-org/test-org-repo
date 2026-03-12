@@ -1,5 +1,5 @@
 name: Create Module Repository
-run-name: "Create module: ${{ vars.ORG_NAME }} / ${{ inputs.moduleName }}"
+run-name: "Create module: ${{ github.repository_owner }} / ${{ inputs.moduleName }}"
 
 on:
   workflow_dispatch:
@@ -108,12 +108,13 @@ jobs:
         env:
           MODULE_NAME: ${{ inputs.moduleName }}
           COMPANY_NAME: ${{ inputs.companyName }}
+          ORG_NAME: ${{ github.repository_owner }}
           TEMPLATE_VERSION: ${{ inputs.templateVersion }}
         run: |
           KEBAB=$(echo "$MODULE_NAME" | sed 's/\([A-Z]\)/-\1/g' | sed 's/^-//' | tr '[:upper:]' '[:lower:]')
           REPO_NAME="vc-module-${KEBAB}"
           MODULE_ID="${COMPANY_NAME}.${MODULE_NAME}"
-          SONAR_KEY="${COMPANY_NAME}_${REPO_NAME}"
+          SONAR_KEY="${ORG_NAME}_${REPO_NAME}"
           echo "repoName=${REPO_NAME}"        >> $GITHUB_OUTPUT
           echo "moduleId=${MODULE_ID}"        >> $GITHUB_OUTPUT
           echo "sonarProjectKey=${SONAR_KEY}" >> $GITHUB_OUTPUT
@@ -135,7 +136,7 @@ jobs:
           echo "### Computed names"                                           >> $GITHUB_STEP_SUMMARY
           echo "| Name              | Value |"                           >> $GITHUB_STEP_SUMMARY
           echo "|-------------------|-------|"                           >> $GITHUB_STEP_SUMMARY
-          echo "| Repository        | ${{ vars.ORG_NAME }}/${REPO_NAME} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Repository        | ${{ github.repository_owner }}/${REPO_NAME} |" >> $GITHUB_STEP_SUMMARY
           echo "| Module ID         | ${MODULE_ID} |"                   >> $GITHUB_STEP_SUMMARY
           echo "| SonarCloud key    | ${SONAR_KEY} |"       >> $GITHUB_STEP_SUMMARY
 
@@ -147,9 +148,9 @@ jobs:
     environment: create-org-repo
     env:
       GH_TOKEN: ${{ secrets.MODULE_REPO_MGMT_TOKEN }}
-      ORG_NAME: ${{ vars.ORG_NAME }}
+      ORG_NAME: ${{ github.repository_owner }}
       REPO_NAME: ${{ needs.summarize-inputs.outputs.repoName }}
-      REPO_FULL_NAME: ${{ vars.ORG_NAME }}/${{ needs.summarize-inputs.outputs.repoName }}
+      REPO_FULL_NAME: ${{ github.repository_owner }}/${{ needs.summarize-inputs.outputs.repoName }}
       MODULE_ID: ${{ needs.summarize-inputs.outputs.moduleId }}
       SONAR_PROJECT_KEY: ${{ needs.summarize-inputs.outputs.sonarProjectKey }}
 
