@@ -531,9 +531,8 @@ jobs:
           set_setting "sonar.sources"                   value  "src"
           set_setting "sonar.tests"                     value  "tests"
           set_setting "sonar.cs.opencover.reportsPaths" values "artifacts/tests/**/*.xml"
-          sonar_post  "new_code_period" "api/new_code_periods/set" \
-            --data-urlencode "project=$SONAR_PROJECT_KEY" \
-            --data-urlencode "type=PREVIOUS_VERSION"
+          set_setting "sonar.leak.period"               value  "previous_version"
+          set_setting "sonar.leak.period.type"          value  "previous_version"
 
       # ── Metadata ─────────────────────────────────────────────────────────────
 
