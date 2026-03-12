@@ -97,23 +97,8 @@ jobs:
 
           check_version "moduleVersion"   "$MODULE_VERSION"
           check_version "platformVersion" "$PLATFORM_VERSION"
-
-          if [[ "$TEMPLATE" == "vc-module-xapi" || "$TEMPLATE" == "vc-module-dba-xapi" ]]; then
-            if [ -z "$XAPI_VERSION" ]; then
-              echo "::error::xapiVersion is required for template '$TEMPLATE'."
-              ERRORS=$((ERRORS + 1))
-            else
-              check_version "xapiVersion" "$XAPI_VERSION"
-            fi
-          fi
-          if [[ "$TEMPLATE" == "vc-module-dba" || "$TEMPLATE" == "vc-module-dba-xapi" ]]; then
-            if [ -z "$CORE_VERSION" ]; then
-              echo "::error::coreVersion is required for template '$TEMPLATE'."
-              ERRORS=$((ERRORS + 1))
-            else
-              check_version "coreVersion" "$CORE_VERSION"
-            fi
-          fi
+          check_version "xapiVersion"     "$XAPI_VERSION"
+          check_version "coreVersion"     "$CORE_VERSION"
 
           if [ "$ERRORS" -gt 0 ]; then exit 1; fi
           echo "All version inputs are valid."
@@ -266,17 +251,11 @@ jobs:
             --ModuleName "${{ inputs.moduleName }}"
             --CompanyName "${{ inputs.companyName }}"
             --Author "${{ inputs.author }}"
-            --ModuleVersion "${{ inputs.moduleVersion }}"
-            --PlatformVersion "${{ inputs.platformVersion }}"
           )
-          # CoreVersion: vc-module-dba, vc-module-dba-xapi only
-          if [[ "$TEMPLATE" == "vc-module-dba" || "$TEMPLATE" == "vc-module-dba-xapi" ]]; then
-            ARGS+=(--CoreVersion "${{ inputs.coreVersion }}")
-          fi
-          # XapiVersion: vc-module-xapi, vc-module-dba-xapi only
-          if [[ "$TEMPLATE" == "vc-module-xapi" || "$TEMPLATE" == "vc-module-dba-xapi" ]]; then
-            ARGS+=(--XapiVersion "${{ inputs.xapiVersion }}")
-          fi
+          [ -n "${{ inputs.moduleVersion }}"   ] && ARGS+=(--ModuleVersion   "${{ inputs.moduleVersion }}")
+          [ -n "${{ inputs.platformVersion }}" ] && ARGS+=(--PlatformVersion "${{ inputs.platformVersion }}")
+          [ -n "${{ inputs.coreVersion }}"     ] && ARGS+=(--CoreVersion     "${{ inputs.coreVersion }}")
+          [ -n "${{ inputs.xapiVersion }}"     ] && ARGS+=(--XapiVersion     "${{ inputs.xapiVersion }}")
           dotnet new "$TEMPLATE" "${ARGS[@]}"
 
       - name: Clone new repository
@@ -495,44 +474,25 @@ jobs:
           fi
           echo "Automatic Analysis disabled."
 
-      - name: Configure analysis scope
+      - name: Configure new code definition
         if: ${{ inputs.visibility == 'public' }}
         run: |
-          # sonar_post <label> <endpoint> [curl-args...]
-          sonar_post() {
-            local LABEL="$1" ENDPOINT="$2"; shift 2
+          for KEY in sonar.leak.period sonar.leak.period.type; do
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
               -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
-              "https://sonarcloud.io/$ENDPOINT" "$@")
-            HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-            BODY=$(echo "$RESPONSE" | head -n -1)
-            echo "[$LABEL] HTTP $HTTP_CODE: $BODY"
-            if [ "$HTTP_CODE" -ge 400 ]; then
-              echo "::error::Failed to set $LABEL (HTTP $HTTP_CODE): $BODY"
-              exit 1
-            fi
-          }
-          # set_setting <key> <param> <value[,value,...]>
-          # param: "value" for single-value settings, "values" for multi-value settings
-          set_setting() {
-            local KEY="$1" PARAM="$2" VALUE="$3"
-            local EXTRA_ARGS=()
-            if [[ "$PARAM" == "values" ]]; then
-              IFS=',' read -ra VALS <<< "$VALUE"
-              for V in "${VALS[@]}"; do EXTRA_ARGS+=(--data-urlencode "values=$V"); done
-            else
-              EXTRA_ARGS=(--data-urlencode "value=$VALUE")
-            fi
-            sonar_post "$KEY" "api/settings/set" \
+              "https://sonarcloud.io/api/settings/set" \
               --data-urlencode "component=$SONAR_PROJECT_KEY" \
               --data-urlencode "key=$KEY" \
-              "${EXTRA_ARGS[@]}"
-          }
-          set_setting "sonar.sources"                   value  "src"
-          set_setting "sonar.tests"                     value  "tests"
-          set_setting "sonar.cs.opencover.reportsPaths" values "artifacts/tests/**/*.xml"
-          set_setting "sonar.leak.period"               value  "previous_version"
-          set_setting "sonar.leak.period.type"          value  "previous_version"
+              --data-urlencode "value=previous_version")
+            HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+            BODY=$(echo "$RESPONSE" | head -n -1)
+            echo "[$KEY] HTTP $HTTP_CODE: $BODY"
+            if [ "$HTTP_CODE" -ge 400 ]; then
+              echo "::error::Failed to set $KEY (HTTP $HTTP_CODE): $BODY"
+              exit 1
+            fi
+          done
+          echo "New Code definition set to: Previous version"
 
       # ── Metadata ─────────────────────────────────────────────────────────────
 
