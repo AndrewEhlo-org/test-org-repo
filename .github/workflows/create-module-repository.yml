@@ -44,7 +44,7 @@ on:
         required: false
         type: string
       templateVersion:
-        description: '(Optional) VirtoCommerce.Module.Template NuGet version (empty = latest)'
+        description: '(Optional) VirtoCommerce.Module.Template (VirtoCommerce/vc-cli-module-template) version (empty = latest)'
         required: false
         type: choice
         options:
@@ -147,8 +147,9 @@ jobs:
     environment: create-org-repo
     env:
       GH_TOKEN: ${{ secrets.MODULE_REPO_MGMT_TOKEN }}
+      ORG_NAME: ${{ vars.ORG_NAME }}
       REPO_NAME: ${{ needs.summarize-inputs.outputs.repoName }}
-      REPO_FULL_NAME: ${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }}
+      REPO_FULL_NAME: ${{ vars.ORG_NAME }}/${{ needs.summarize-inputs.outputs.repoName }}
       MODULE_ID: ${{ needs.summarize-inputs.outputs.moduleId }}
       SONAR_PROJECT_KEY: ${{ needs.summarize-inputs.outputs.sonarProjectKey }}
 
@@ -224,7 +225,7 @@ jobs:
             echo "Adding team $TEAM (${TEAMS[$TEAM]})"
             gh api \
               --method PUT \
-              /orgs/${{ inputs.companyName }}/teams/$TEAM/repos/${{ env.REPO_FULL_NAME }} \
+              /orgs/$ORG_NAME/teams/$TEAM/repos/${{ env.REPO_FULL_NAME }} \
               --field permission=${TEAMS[$TEAM]}
           done
 
