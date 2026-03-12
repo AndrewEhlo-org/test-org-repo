@@ -1,5 +1,5 @@
 name: Create Module Repository
-run-name: "Create module: ${{ inputs.companyName }} / ${{ inputs.moduleName }}"
+run-name: "Create module: ${{ vars.ORG_NAME }} / ${{ inputs.moduleName }}"
 
 on:
   workflow_dispatch:
@@ -132,12 +132,12 @@ jobs:
           echo "| template        | ${{ inputs.template }} |"       >> $GITHUB_STEP_SUMMARY
           echo "| visibility      | ${{ inputs.visibility }} |"     >> $GITHUB_STEP_SUMMARY
           echo ""                                                    >> $GITHUB_STEP_SUMMARY
-          echo "### Computed names"                                  >> $GITHUB_STEP_SUMMARY
-          echo "| Name              | Value |"                      >> $GITHUB_STEP_SUMMARY
-          echo "|-------------------|-------|"                      >> $GITHUB_STEP_SUMMARY
-          echo "| Repository        | ${COMPANY_NAME}/${REPO_NAME} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Module ID         | ${MODULE_ID} |"               >> $GITHUB_STEP_SUMMARY
-          echo "| SonarCloud key    | ${SONAR_KEY} |"               >> $GITHUB_STEP_SUMMARY
+          echo "### Computed names"                                           >> $GITHUB_STEP_SUMMARY
+          echo "| Name              | Value |"                           >> $GITHUB_STEP_SUMMARY
+          echo "|-------------------|-------|"                           >> $GITHUB_STEP_SUMMARY
+          echo "| Repository        | ${{ vars.ORG_NAME }}/${REPO_NAME} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Module ID         | ${MODULE_ID} |"                   >> $GITHUB_STEP_SUMMARY
+          echo "| SonarCloud key    | ${SONAR_KEY} |"       >> $GITHUB_STEP_SUMMARY
 
   create-module-repository:
     needs: summarize-inputs
