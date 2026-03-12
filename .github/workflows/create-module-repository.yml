@@ -148,6 +148,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.MODULE_REPO_MGMT_TOKEN }}
       REPO_NAME: ${{ needs.summarize-inputs.outputs.repoName }}
+      REPO_FULL_NAME: ${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }}
       MODULE_ID: ${{ needs.summarize-inputs.outputs.moduleId }}
       SONAR_PROJECT_KEY: ${{ needs.summarize-inputs.outputs.sonarProjectKey }}
 
@@ -166,18 +167,18 @@ jobs:
 
       - name: Check repository does not exist
         run: |
-          if gh api /repos/${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }} --silent 2>/dev/null; then
-            echo "::error::Repository ${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }} already exists."
+          if gh api /repos/${{ env.REPO_FULL_NAME }} --silent 2>/dev/null; then
+            echo "::error::Repository ${{ env.REPO_FULL_NAME }} already exists."
             exit 1
           fi
-          echo "Repository ${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }} does not exist — proceeding."
+          echo "Repository ${{ env.REPO_FULL_NAME }} does not exist — proceeding."
 
       - name: Check SonarCloud project does not exist
         if: ${{ inputs.visibility == 'public' }}
         run: |
           RESPONSE=$(curl -s -w "\n%{http_code}" \
             -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
-            "https://sonarcloud.io/api/projects/search?projects=${{ needs.summarize-inputs.outputs.sonarProjectKey }}&organization=${{ secrets.SONAR_ORG_KEY }}")
+            "https://sonarcloud.io/api/projects/search?projects=$SONAR_PROJECT_KEY&organization=${{ secrets.SONAR_ORG_KEY }}")
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | head -n -1)
           echo "HTTP $HTTP_CODE: $BODY"
@@ -188,26 +189,26 @@ jobs:
           TOTAL=$(echo "$BODY" | grep -o '"total":[0-9]*' | cut -d: -f2)
           echo "Projects found: ${TOTAL:-0}"
           if [ "${TOTAL:-0}" -gt "0" ]; then
-            echo "::error::SonarCloud project '${{ needs.summarize-inputs.outputs.sonarProjectKey }}' already exists."
+            echo "::error::SonarCloud project '$SONAR_PROJECT_KEY' already exists."
             exit 1
           fi
 
       - name: Create repository
         id: create-repo
         run: |
-          gh repo create ${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }} \
+          gh repo create ${{ env.REPO_FULL_NAME }} \
             --${{ inputs.visibility }} \
             --description "${{ inputs.companyName }} ${{ inputs.moduleName }} module"
-          REPO_ID=$(gh api repos/${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }} --jq '.id')
+          REPO_ID=$(gh api repos/${{ env.REPO_FULL_NAME }} --jq '.id')
           echo "repoId=$REPO_ID" >> $GITHUB_OUTPUT
           echo "created=true" >> $GITHUB_OUTPUT
-          echo "Repository created: https://github.com/${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }}"
+          echo "Repository created: https://github.com/${{ env.REPO_FULL_NAME }}"
 
       - name: Configure repository settings
         run: |
           gh api \
             --method PATCH \
-            /repos/${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }} \
+            /repos/${{ env.REPO_FULL_NAME }} \
             --field allow_merge_commit=false \
             --field allow_squash_merge=true \
             --field squash_merge_commit_title=PR_TITLE \
@@ -223,7 +224,7 @@ jobs:
             echo "Adding team $TEAM (${TEAMS[$TEAM]})"
             gh api \
               --method PUT \
-              /orgs/${{ inputs.companyName }}/teams/$TEAM/repos/${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }} \
+              /orgs/${{ inputs.companyName }}/teams/$TEAM/repos/${{ env.REPO_FULL_NAME }} \
               --field permission=${TEAMS[$TEAM]}
           done
 
@@ -260,7 +261,7 @@ jobs:
 
       - name: Clone new repository
         run: |
-          git clone https://x-access-token:${{ env.GH_TOKEN }}@github.com/${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }}.git repo
+          git clone https://x-access-token:${{ env.GH_TOKEN }}@github.com/${{ env.REPO_FULL_NAME }}.git repo
           # Ensure the default branch is 'main' regardless of org-level settings
           git -C repo symbolic-ref HEAD refs/heads/main
 
@@ -280,7 +281,7 @@ jobs:
           mkdir -p repo/.deployment/module
           cat > repo/.deployment/module/cloudDeploy.json << EOF
           {
-              "artifactKey": "${{ needs.summarize-inputs.outputs.moduleId }}",
+              "artifactKey": "$MODULE_ID",
               "deployRepo": "vc-deploy-dev",
               "cmPath": "backend/packages.json",
               "dev": {
@@ -367,7 +368,7 @@ jobs:
         run: |
           git checkout -b dev
           git push -u origin dev
-          gh repo edit ${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }} --default-branch dev
+          gh repo edit ${{ env.REPO_FULL_NAME }} --default-branch dev
 
       - name: Protect branches
         run: |
@@ -400,7 +401,7 @@ jobs:
             printf "Protecting branch: %s ... " "$BRANCH"
             if echo "$POLICY" | gh api \
               --method PUT \
-              /repos/${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }}/branches/$BRANCH/protection \
+              /repos/${{ env.REPO_FULL_NAME }}/branches/$BRANCH/protection \
               --input - > /dev/null; then
               echo "OK"
             else
@@ -431,7 +432,7 @@ jobs:
 
           # Create project and bind to GitHub in one call.
           # installationKeys format: {github-org}/{repo-name}|{github-repo-id}
-          INSTALLATION_KEY="${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }}|${{ steps.create-repo.outputs.repoId }}"
+          INSTALLATION_KEY="${{ env.REPO_FULL_NAME }}|${{ steps.create-repo.outputs.repoId }}"
           sonar_post "provision_projects" "api/alm_integration/provision_projects" \
             --data-urlencode "installationKeys=$INSTALLATION_KEY" \
             --data-urlencode "organization=${{ secrets.SONAR_ORG_KEY }}"
@@ -445,7 +446,7 @@ jobs:
             echo "SONAR_PROJECT_KEY=$PROVISIONED_KEY" >> $GITHUB_ENV
             SONAR_PROJECT_KEY="$PROVISIONED_KEY"
           fi
-          echo "SonarCloud project created and bound to GitHub: ${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }}"
+          echo "SonarCloud project created and bound to GitHub: ${{ env.REPO_FULL_NAME }}"
 
           # Rename default branch to main
           sonar_post "project_branches/rename" "api/project_branches/rename" \
@@ -478,32 +479,22 @@ jobs:
         continue-on-error: true
         run: |
           CREATED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          PROPS=$(cat << EOF
-          {
-            "properties": [
-              { "property_name": "module-template",    "value": "${{ inputs.template }}" },
-              { "property_name": "module-id",          "value": "${{ needs.summarize-inputs.outputs.moduleId }}" },
-              { "property_name": "platform-version",   "value": "${{ inputs.platformVersion }}" },
-              { "property_name": "created-by",         "value": "${{ github.actor }}" },
-              { "property_name": "created-at",         "value": "$CREATED_AT" },
-              { "property_name": "workflow-run",       "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" }
-            ]
-          }
-          EOF
-          )
+          PROPS='{"properties":['
+          PROPS+='{"property_name":"module-template","value":"${{ inputs.template }}"}'
+          PROPS+=',{"property_name":"module-id","value":"'"$MODULE_ID"'"}'
+          PROPS+=',{"property_name":"platform-version","value":"${{ inputs.platformVersion }}"}'
+          PROPS+=',{"property_name":"created-by","value":"${{ github.actor }}"}'
+          PROPS+=',{"property_name":"created-at","value":"'"$CREATED_AT"'"}'
+          PROPS+=',{"property_name":"workflow-run","value":"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"}'
+          if [ "${{ inputs.visibility }}" = "public" ]; then
+            PROPS+=',{"property_name":"sonar-key","value":"'"$SONAR_PROJECT_KEY"'"}'
+          fi
+          PROPS+=']}'
           echo "$PROPS" | gh api \
             --method PATCH \
-            /repos/${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }}/properties/values \
+            /repos/${{ env.REPO_FULL_NAME }}/properties/values \
             --input -
-          echo "Core properties set: module-template, module-id, platform-version, created-by, created-at, workflow-run"
-
-          if [ "${{ inputs.visibility }}" = "public" ]; then
-            echo '{"properties":[{"property_name":"sonar-key","value":"${{ needs.summarize-inputs.outputs.sonarProjectKey }}"}]}' | gh api \
-              --method PATCH \
-              /repos/${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }}/properties/values \
-              --input -
-            echo "SonarCloud property set: sonar-key=${{ needs.summarize-inputs.outputs.sonarProjectKey }}"
-          fi
+          echo "Repository custom properties set."
 
       - name: Register repository in deploy-module-workflows.yml
         # Inserts the new repo into the sorted matrix list and commits back.
@@ -512,7 +503,7 @@ jobs:
         continue-on-error: true
         working-directory: dotgithub
         run: |
-          NEW_REPO="${{ needs.summarize-inputs.outputs.repoName }}"
+          NEW_REPO="$REPO_NAME"
           FILE=".github/workflows/deploy-module-workflows.yml"
 
           python3 - "$NEW_REPO" "$FILE" << 'PYEOF'
@@ -549,8 +540,8 @@ jobs:
       - name: Delete GitHub repository (rollback)
         if: failure() && steps.create-repo.outputs.created == 'true'
         run: |
-          if DELETE_OUTPUT=$(gh api --method DELETE /repos/${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }} 2>&1); then
-            echo "Repository ${{ inputs.companyName }}/${{ needs.summarize-inputs.outputs.repoName }} deleted."
+          if DELETE_OUTPUT=$(gh api --method DELETE /repos/${{ env.REPO_FULL_NAME }} 2>&1); then
+            echo "Repository ${{ env.REPO_FULL_NAME }} deleted."
           elif echo "$DELETE_OUTPUT" | grep -qi "not found\|404"; then
             echo "Repository does not exist — nothing to clean up."
           else
