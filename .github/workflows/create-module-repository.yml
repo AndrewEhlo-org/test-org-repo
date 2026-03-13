@@ -18,7 +18,7 @@ on:
           - vc-module-xapi
         default: 'vc-module-dba'
       companyName:
-        description: 'Company namespace prefix'
+        description: 'Company namespace prefix, used for module template compiling'
         required: false
         type: string
         default: 'AndrewEhloOrg'
@@ -63,7 +63,7 @@ on:
 # Prevent concurrent runs for the same module name to avoid race conditions
 # on existence checks and resource creation.
 concurrency:
-  group: module-repository-${{ inputs.moduleName }}-${{ inputs.companyName }}
+  group: module-repository-${{ inputs.moduleName }}-${{ github.repository_owner }}
   cancel-in-progress: false
 
 jobs:
@@ -200,7 +200,7 @@ jobs:
         run: |
           gh repo create ${{ env.REPO_FULL_NAME }} \
             --${{ inputs.visibility }} \
-            --description "${{ inputs.companyName }} ${{ inputs.moduleName }} module"
+            --description "${{ env.ORG_NAME }} ${{ inputs.moduleName }} module"
           REPO_ID=$(gh api repos/${{ env.REPO_FULL_NAME }} --jq '.id')
           echo "repoId=$REPO_ID" >> $GITHUB_OUTPUT
           echo "created=true" >> $GITHUB_OUTPUT
