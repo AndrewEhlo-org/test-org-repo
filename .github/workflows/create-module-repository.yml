@@ -180,7 +180,7 @@ jobs:
         run: |
           RESPONSE=$(curl -s -w "\n%{http_code}" \
             -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
-            "https://sonarcloud.io/api/projects/search?projects=$SONAR_PROJECT_KEY&organization=${{ secrets.SONAR_ORG_KEY }}")
+            "https://sonarcloud.io/api/projects/search?projects=$SONAR_PROJECT_KEY&organization=${{ vars.SONAR_ORG_KEY }}")
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | head -n -1)
           echo "HTTP $HTTP_CODE: $BODY"
@@ -437,11 +437,11 @@ jobs:
           INSTALLATION_KEY="${{ env.REPO_FULL_NAME }}|${{ steps.create-repo.outputs.repoId }}"
           sonar_post "provision_projects" "api/alm_integration/provision_projects" \
             --data-urlencode "installationKeys=$INSTALLATION_KEY" \
-            --data-urlencode "organization=${{ secrets.SONAR_ORG_KEY }}"
+            --data-urlencode "organization=${{ vars.SONAR_ORG_KEY }}"
           echo "created=true" >> $GITHUB_OUTPUT
 
-          # Extract the actual project key assigned by SonarCloud (may differ from our computed key
-          # if SONAR_ORG_KEY != inputs.companyName). Override SONAR_PROJECT_KEY for subsequent steps.
+          # Extract the actual project key assigned by SonarCloud and override SONAR_PROJECT_KEY
+          # for subsequent steps if it differs from our computed value.
           PROVISIONED_KEY=$(echo "$BODY" | grep -o '"projectKey":"[^"]*"' | head -1 | cut -d'"' -f4)
           if [ -n "$PROVISIONED_KEY" ] && [ "$PROVISIONED_KEY" != "$SONAR_PROJECT_KEY" ]; then
             echo "::warning::Provisioned project key '$PROVISIONED_KEY' differs from computed '$SONAR_PROJECT_KEY'. Using provisioned key."
@@ -559,7 +559,7 @@ jobs:
           fi
           RESPONSE=$(curl -s \
             -H "Authorization: Bearer ${{ secrets.SONAR_TOKEN }}" \
-            "https://sonarcloud.io/api/projects/search?projects=$SONAR_PROJECT_KEY&organization=${{ secrets.SONAR_ORG_KEY }}" \
+            "https://sonarcloud.io/api/projects/search?projects=$SONAR_PROJECT_KEY&organization=${{ vars.SONAR_ORG_KEY }}" \
             2>/dev/null || echo '{}')
           TOTAL=$(echo "$RESPONSE" | grep -o '"total":[0-9]*' | cut -d: -f2)
           if [ "${TOTAL:-0}" -gt "0" ]; then
