@@ -75,6 +75,17 @@ jobs:
       moduleId:        ${{ steps.names.outputs.moduleId }}
       sonarProjectKey: ${{ steps.names.outputs.sonarProjectKey }}
     steps:
+      - name: Validate module name
+        env:
+          MODULE_NAME: ${{ inputs.moduleName }}
+        run: |
+          # Must start with an uppercase letter and contain only letters and digits
+          if ! echo "$MODULE_NAME" | grep -qE '^[A-Z][a-zA-Z0-9]+$'; then
+            echo "::error::moduleName '$MODULE_NAME' is invalid. Must start with an uppercase letter and contain only letters and digits (e.g. 'News', 'NewsArticle')."
+            exit 1
+          fi
+          echo "moduleName '$MODULE_NAME' is valid."
+
       - name: Validate template parameters
         env:
           TEMPLATE: ${{ inputs.template }}
@@ -155,17 +166,6 @@ jobs:
       SONAR_PROJECT_KEY: ${{ needs.summarize-inputs.outputs.sonarProjectKey }}
 
     steps:
-
-      - name: Validate inputs
-        env:
-          MODULE_NAME: ${{ inputs.moduleName }}
-        run: |
-          # Must start with an uppercase letter and contain only letters and digits
-          if ! echo "$MODULE_NAME" | grep -qE '^[A-Z][a-zA-Z0-9]+$'; then
-            echo "::error::moduleName '$MODULE_NAME' is invalid. Must start with an uppercase letter and contain only letters and digits (e.g. 'News', 'NewsArticle')."
-            exit 1
-          fi
-          echo "moduleName '$MODULE_NAME' is valid."
 
       - name: Check repository does not exist
         run: |
@@ -522,7 +522,8 @@ jobs:
               sys.exit(0)
           entries.append(repo)
           entries.sort()
-          indent = '                  '
+          indent_match = re.search(r'\n( +),', m.group(2))
+          indent = indent_match.group(1) if indent_match else ' ' * (len(m.group(1)) - 1)
           new_body = entries[0] + ''.join(f'\n{indent},{e}' for e in entries[1:])
           new_content = content[:m.start()] + m.group(1) + new_body + '\n' + indent + m.group(3) + content[m.end():]
           with open(path, 'w') as f:
