@@ -223,6 +223,11 @@ jobs:
             --field allow_rebase_merge=false \
             --field allow_update_branch=true \
             --field delete_branch_on_merge=true
+          gh api \
+            --method PUT \
+            /repos/${{ env.REPO_FULL_NAME }}/actions/permissions \
+            --field enabled=true \
+            --field allowed_actions=all
 
       - name: Configure teams
         run: |
