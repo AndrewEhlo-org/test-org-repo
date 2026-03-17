@@ -475,14 +475,14 @@ jobs:
             --data-urlencode "projectKey=$SONAR_PROJECT_KEY"
           echo "Automatic Analysis disabled."
 
-          # Set New Code definition to "Previous version"
-          for KEY in sonar.leak.period sonar.leak.period.type; do
-            sonar_post "$KEY" "api/settings/set" \
-              --data-urlencode "component=$SONAR_PROJECT_KEY" \
-              --data-urlencode "key=$KEY" \
-              --data-urlencode "value=previous_version"
-          done
-          echo "New Code definition set to: Previous version"
+          # # Set New Code definition to "Previous version"
+          # for KEY in sonar.leak.period sonar.leak.period.type; do
+          #   sonar_post "$KEY" "api/settings/set" \
+          #     --data-urlencode "component=$SONAR_PROJECT_KEY" \
+          #     --data-urlencode "key=$KEY" \
+          #     --data-urlencode "value=previous_version"
+          # done
+          # echo "New Code definition set to: Previous version"
 
       - name: Set repository custom properties
         # Property schemas must be pre-defined in the org:
