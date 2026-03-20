@@ -108,6 +108,7 @@ jobs:
                   ,vc-module-test-t
                   ,vc-module-test-u
                   ,vc-module-test-v
+                  ,vc-module-test-w
                   ,vc-module-webhooks
                   ,vc-module-white-labeling
                   ,vc-module-x-api
