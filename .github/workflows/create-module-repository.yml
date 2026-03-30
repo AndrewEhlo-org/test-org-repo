@@ -453,15 +453,15 @@ jobs:
             --data-urlencode "organization=$SONAR_ORG_KEY"
           echo "created=true" >> $GITHUB_OUTPUT
 
-          # Extract the actual project key assigned by SonarCloud and override SONAR_PROJECT_KEY
-          # for subsequent steps if it differs from our computed value.
-          PROVISIONED_KEY=$(echo "$BODY" | grep -o '"projectKey":"[^"]*"' | head -1 | cut -d'"' -f4)
-          if [ -n "$PROVISIONED_KEY" ] && [ "$PROVISIONED_KEY" != "$SONAR_PROJECT_KEY" ]; then
-            echo "::warning::Provisioned project key '$PROVISIONED_KEY' differs from computed '$SONAR_PROJECT_KEY'. Using provisioned key."
-            echo "SONAR_PROJECT_KEY=$PROVISIONED_KEY" >> $GITHUB_ENV
-            SONAR_PROJECT_KEY="$PROVISIONED_KEY"
-          fi
-          echo "SonarCloud project created and bound to GitHub: $REPO_FULL_NAME"
+          # # Extract the actual project key assigned by SonarCloud and override SONAR_PROJECT_KEY
+          # # for subsequent steps if it differs from our computed value.
+          # PROVISIONED_KEY=$(echo "$BODY" | grep -o '"projectKey":"[^"]*"' | head -1 | cut -d'"' -f4)
+          # if [ -n "$PROVISIONED_KEY" ] && [ "$PROVISIONED_KEY" != "$SONAR_PROJECT_KEY" ]; then
+          #   echo "::warning::Provisioned project key '$PROVISIONED_KEY' differs from computed '$SONAR_PROJECT_KEY'. Using provisioned key."
+          #   echo "SONAR_PROJECT_KEY=$PROVISIONED_KEY" >> $GITHUB_ENV
+          #   SONAR_PROJECT_KEY="$PROVISIONED_KEY"
+          # fi
+          # echo "SonarCloud project created and bound to GitHub: $REPO_FULL_NAME"
 
           # # Rename default branch to main
           # sonar_post "project_branches/rename" "api/project_branches/rename" \
