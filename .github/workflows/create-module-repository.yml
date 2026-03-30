@@ -463,14 +463,11 @@ jobs:
           fi
           echo "SonarCloud project created and bound to GitHub: $REPO_FULL_NAME"
 
-          # Wait for SonarCloud to fully index the new project before renaming its branch
-          sleep 5
-
-          # Rename default branch to main
-          sonar_post "project_branches/rename" "api/project_branches/rename" \
-            --data-urlencode "project=$SONAR_PROJECT_KEY" \
-            --data-urlencode "name=main"
-          echo "SonarCloud main branch renamed to: main"
+          # # Rename default branch to main
+          # sonar_post "project_branches/rename" "api/project_branches/rename" \
+          #   --data-urlencode "project=$SONAR_PROJECT_KEY" \
+          #   --data-urlencode "name=main"
+          # echo "SonarCloud main branch renamed to: main"
 
           # Disable Automatic Analysis — CI-based analysis (dotnet-sonarscanner) is used instead
           sonar_post "autoscan/disable" "api/autoscan/activation" \
