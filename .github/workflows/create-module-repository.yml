@@ -453,6 +453,17 @@ jobs:
             --data-urlencode "organization=$SONAR_ORG_KEY"
           echo "created=true" >> $GITHUB_OUTPUT
 
+          # Grant the token user project-level admin so subsequent API calls succeed.
+          # Org-level "Administer" does not cascade to project-level permissions in SonarCloud.
+          CURRENT_LOGIN=$(curl -s \
+            -H "Authorization: Bearer $SONAR_TOKEN" \
+            "https://sonarcloud.io/api/users/current" | grep -o '"login":"[^"]*"' | head -1 | cut -d'"' -f4)
+          sonar_post "permissions/add_user" "api/permissions/add_user" \
+            --data-urlencode "projectKey=$SONAR_PROJECT_KEY" \
+            --data-urlencode "login=$CURRENT_LOGIN" \
+            --data-urlencode "permission=admin"
+          echo "Project-level admin granted to: $CURRENT_LOGIN"
+
           # # Extract the actual project key assigned by SonarCloud and override SONAR_PROJECT_KEY
           # # for subsequent steps if it differs from our computed value.
           # PROVISIONED_KEY=$(echo "$BODY" | grep -o '"projectKey":"[^"]*"' | head -1 | cut -d'"' -f4)
@@ -463,11 +474,11 @@ jobs:
           # fi
           # echo "SonarCloud project created and bound to GitHub: $REPO_FULL_NAME"
 
-          # # Rename default branch to main
-          # sonar_post "project_branches/rename" "api/project_branches/rename" \
-          #   --data-urlencode "project=$SONAR_PROJECT_KEY" \
-          #   --data-urlencode "name=main"
-          # echo "SonarCloud main branch renamed to: main"
+          # Rename default branch to main
+          sonar_post "project_branches/rename" "api/project_branches/rename" \
+            --data-urlencode "project=$SONAR_PROJECT_KEY" \
+            --data-urlencode "name=main"
+          echo "SonarCloud main branch renamed to: main"
 
           # Disable Automatic Analysis — CI-based analysis (dotnet-sonarscanner) is used instead
           sonar_post "autoscan/disable" "api/autoscan/activation" \
